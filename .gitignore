@@ -1,0 +1,32 @@
+# El caché
+__pycache__/
+
+# Directorios de entornos virtuales
+.venv/
+
+# Archivos ejecutables e instaladores
+*.exe
+*.jnlp
+winglpk-4.65/
+cplex_studio2212.win_x86_64.exe
+dlmgr.pro
+
+# Archivos de salida
+output/
+
+# Archivos de texto enriquecido y PDFs
+*.pdf
+*.odt
+algoritmos_metaheuristicos.txt
+tfg.bib
+
+# Archivos de Jupyter Notebook de prueba
+pruebas.ipynb
+
+# Archivos de imágenes grandes que pueden ser duplicados en otros lugares o no ser necesarios para el código
+*.png
+*.jpeg
+*.jpg
+
+# Logs de ejecuciones
+*.log
