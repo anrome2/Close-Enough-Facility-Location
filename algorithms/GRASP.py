@@ -2,319 +2,7 @@ import random
 import time
 import os
 
-class Solution:
-    def __init__(self, grasp, other_solution=None):
-        self.grasp = grasp
-        self.problem = grasp.problem
-        self.cost = float('inf')
-        self.time = 0
-        self.client_assignments = {}
-
-        if other_solution is None:
-            self._initialize_empty()
-        else:
-            self._clone_solution(other_solution)
-
-    @property
-    def open_facilities(self):
-        return [j for j, val in self.y.items() if val == 1]
-
-    @property
-    def closed_facilities(self):
-        return [j for j, val in self.y.items() if val == 0]
-    
-    @property
-    def open_pickups(self):
-        return [k for k, val in self.nu.items() if val == 1]
-
-    @property
-    def closed_pickups(self):
-        return [k for k, val in self.nu.items() if val == 0]
-    
-    def _set_nu(self, k, value):
-        """Activa o desactiva el punto de recogida k y actualiza las asignaciones afectadas"""
-        if self.nu[k] == value:
-            return  # No hay cambio, evitamos trabajo innecesario
-
-        self.nu[k] = value
-
-        # Identificar los clientes que pueden verse afectados
-        affected_clients = [i for i in self.grasp.I if k in self.grasp.K_i[i]]
-
-        # Reasignar solo los clientes afectados y recalcular coste
-        self.evaluate(affected_clients=affected_clients)
-
-    
-    def _set_y(self, j, value):
-        """Activa o desactiva la instalación j y actualiza las asignaciones afectadas"""
-        if self.y[j] == value:
-            return  # No hay cambio
-
-        self.y[j] = value
-
-        # Clientes afectados: todos, ya que todos pueden asignarse a cualquier j ∈ J abierta
-        self.evaluate()
-
-    def _initialize_empty(self):
-        """Inicialización optimizada según el tipo de problema"""
-        self.y = {j: 0 for j in self.grasp.J}
-        self.nu = {k: 0 for k in self.grasp.K}
-        
-        if self.problem == "P1":
-            self.x = {(i, j): 0 for i in self.grasp.I for j in self.grasp.J}
-            self.z = {(k, j): 0 for k in self.grasp.K for j in self.grasp.J}
-            self.s = {(k, j): 0 for k in self.grasp.K for j in self.grasp.J}
-        else:  # P2 o default
-            self.w = {}
-    
-    def _clone_solution(self, other):
-        """Clonación optimizada usando un solo método"""
-        self.y = other.y.copy()
-        self.nu = other.nu.copy()
-        self.cost = other.cost
-        self.client_assignments = other.client_assignments.copy()
-        
-        if self.problem == "P1":
-            self.x = other.x.copy()
-            self.z = other.z.copy()
-            self.s = other.s.copy()
-        else:  # P2 o default
-            self.w = other.w.copy()
-    
-    def _get_distance_ij(self, i, j):
-        """Método auxiliar optimizado para obtener distancia entre cliente i e instalación j"""
-        if i == j:
-            return 0
-        elif i < j:
-            return self.grasp.d_ij[i][j]
-        else:
-            return self.grasp.d_ij[j][i]
-        
-    def initialize_greedy(self, alpha=0.3):
-        """Construcción greedy aleatorizada optimizada"""
-        # Reset de variables de decisión
-        for j in self.grasp.J:
-            self.y[j] = 0
-        for k in self.grasp.K:
-            self.nu[k] = 0
-
-        # --- Selección de instalaciones ---
-        len_I = len(self.grasp.I)
-        facility_scores = [
-            (j, sum(self._get_distance_ij(i, j) for i in self.grasp.I) / len_I)
-            for j in self.grasp.J
-        ]
-        facility_scores.sort(key=lambda x: x[1])
-
-        rcl_size = max(1, int(alpha * len(facility_scores)))
-        selected_facilities = set()
-
-        for _ in range(self.grasp.p):
-            # Construcción del RCL directamente filtrando ya los seleccionados
-            rcl = [pair for pair in facility_scores if pair[0] not in selected_facilities][:rcl_size]
-            if not rcl: break  # Seguridad por si faltan elementos
-            j, _ = random.choice(rcl)
-            self.y[j] = 1
-            selected_facilities.add(j)
-
-        self.grasp.logger.info(f"[GRASP] Instalaciones seleccionadas: {[j for j in selected_facilities]}")
-
-        # --- Selección de puntos de recogida ---
-        open_facilities = self.open_facilities
-        if open_facilities:
-            open_set = set(open_facilities)
-            pickup_scores = []
-            for k in self.grasp.K:
-                dists = [self.grasp.d_kj[k][j] for j in open_set if self.grasp.d_kj[k][j] != float('inf')]
-                avg_dist = sum(dists) / len(dists) if dists else float('inf')
-                pickup_scores.append((k, avg_dist))
-        else:
-            pickup_scores = [(k, float('inf')) for k in self.grasp.K]
-
-        pickup_scores.sort(key=lambda x: x[1])
-        rcl_size_pickup = max(1, int(alpha * len(pickup_scores)))
-        selected_pickups = set()
-
-        for _ in range(self.grasp.t):
-            rcl = [pair for pair in pickup_scores if pair[0] not in selected_pickups][:rcl_size_pickup]
-            if not rcl: break
-            k, _ = random.choice(rcl)
-            self.nu[k] = 1
-            selected_pickups.add(k)
-
-        self.grasp.logger.info(f"[GRASP] Puntos de recogida seleccionados: {[k for k in selected_pickups]}")
-
-        self.evaluate()
-
-    def evaluate(self, affected_clients=None):
-        try:
-            self.grasp.logger.debug("Asignando clientes...")
-            self._assign_customers(affected_clients=affected_clients)
-
-            self.grasp.logger.debug("Calculando costos...")
-            if self.problem == "P1":
-                cost = self._calculate_cost_P1()
-            else:
-                cost = self._calculate_cost_P2()
-
-            self.cost = cost
-            self.grasp.logger.info(f"Costo total calculado: {self.cost}")
-            return cost
-        
-        except Exception as e:
-            self.grasp.logger.error(f"Error en evaluate: {e}")
-            self.cost = float('inf')
-            return self.cost
-        
-    def _assign_customers(self, affected_clients=None):
-        """Asignación de clientes optimizada"""
-        if affected_clients is None:
-            affected_clients = self.grasp.I
-        
-        self.grasp.logger.debug(f"Instalaciones abiertas: {self.open_facilities}")
-        self.grasp.logger.debug(f"Puntos de recogida abiertos: {self.open_pickups}")
-        
-        for i in affected_clients:
-            # Limpieza optimizada de asignaciones previas
-            self._clear_client_assignments(i)
-            
-            self.grasp.logger.debug(f" Reasignando cliente {i}...")
-            
-            best_assignment = None
-            best_facility = None
-            best_pickup = None
-            best_cost = float('inf')
-            h_i = self.grasp.h[i - 1]
-            
-            # Caso 1: Asignación directa (i, i, j) o (i, j)
-            for j in self.open_facilities:
-                self.grasp.logger.debug(f" Evaluando instalación {j}...")
-                dist = self._get_distance_ij(i, j)
-                cost = h_i * dist
-                
-                if cost < best_cost:
-                    best_assignment = (i, j) if self.problem == "P1" else (i, i, j)
-                    best_cost = cost
-                    best_facility = j
-                    self.grasp.logger.debug(f"  Costo directo a instalación {j}: {cost}")
-                    
-                    if cost == 0:
-                        break
-            
-            self.grasp.logger.debug(f"Mejor asignación directa para cliente {i}: {best_assignment} con costo {best_cost}")
-            
-            # Caso 2: Asignación vía punto de recogida
-            for k in self.open_pickups:
-                if k not in self.grasp.K_i[i]:
-                    continue
-                
-                self.grasp.logger.debug(f" Evaluando punto de recogida {k}...")
-                
-                try:
-                    dist_ik = self.grasp.d_kj[k][i]
-                except AttributeError:
-                    self.grasp.logger.error(f"Error: self.grasp.d_ik no encontrado. No se puede calcular correctamente el costo para asignaciones a puntos de recogida para el cliente {i} y punto de recogida {k}.")
-
-                for j in self.open_facilities:
-                    dist_kj = self.grasp.d_kj[k][j]
-                    cost = h_i * (dist_ik + dist_kj)
-                    self.grasp.logger.debug(f"  Costo a punto de recogida {k}: {cost}")
-                    
-                    if cost < best_cost:
-                        best_assignment = (i, k) if self.problem == "P1" else (i, k, j)
-                        best_cost = cost
-                        best_pickup = k
-                        best_facility = j
-            
-            # Actualización optimizada de asignaciones
-            if best_assignment:
-                self._update_assignment(i, best_assignment, best_pickup, best_facility, h_i)
-
-    def _clear_client_assignments(self, i):
-        """Limpia las asignaciones previas de un cliente"""
-        if self.problem == "P1":
-            # Limpiar x e z del cliente i
-            keys_to_clear = [key for key in self.x.keys() if key[0] == i]
-            for key in keys_to_clear:
-                self.x[key] = 0
-            
-            keys_to_clear = [key for key in self.z.keys() if key[0] == i]
-            for key in keys_to_clear:
-                self.z[key] = 0
-        else:  # P2
-            # Limpiar w del cliente i
-            keys_to_clear = [key for key in self.w.keys() if key[0] == i]
-            for key in keys_to_clear:
-                self.w[key] = 0
-
-    def _assign_best_facility(self, k):
-        """Asigna el mejor facility para un punto de recogida k"""
-        best_cost = float('inf')
-        best_facility = None
-        for j in self.grasp.J:
-            if self.y[j] == 1:
-                dist = self.grasp.d_kj[k][j]
-                cost = self.grasp.h[k - 1] * dist
-                if cost < best_cost:
-                    best_cost = cost
-                    best_facility = j
-        return best_facility
-    
-    def _update_assignment(self, i, best_assignment, best_pickup, best_facility, h_i):
-        """Actualiza las estructuras de datos con la mejor asignación"""
-        self.grasp.logger.debug(f"Asignando {best_assignment}...")
-        self.client_assignments[i] = best_assignment
-
-        if self.problem == "P1":
-            if best_pickup is not None:
-                self.z[(best_assignment[1], best_assignment[0])] = 1
-                # best_facility = self._assign_best_facility(best_pickup, h_i)
-                self.s[(best_pickup, best_facility)] += h_i
-            else:
-                self.x[best_assignment] = 1
-        else:  # P2
-            self.w[best_assignment] = 1
-    
-    def _assign_best_facility(self, k, h_i):
-        """Asigna la mejor instalación para un punto de recogida k"""
-        best_cost = float('inf')
-        best_facility = None
-        
-        for j in self.grasp.J:
-            if self.y[j] == 1:
-                dist = self.grasp.d_kj[k][j]
-                cost = h_i * dist
-                if cost < best_cost:
-                    best_cost = cost
-                    best_facility = j
-        
-        return best_facility
-    
-    def _calculate_cost_P2(self):
-        cost = 0
-
-        for (i, k, j), value in self.w.items():
-            if value == 1:
-                if k == i:
-                    cost += self.grasp.h[i-1] * self._get_distance_ij(i, j)
-                else:
-                    cost += self.grasp.h[i-1] * self.grasp.d_kj[k][j]
-        return cost
-
-    def _calculate_cost_P1(self):
-        cost = 0
-        # Coste por asignaciones directas cliente -> instalación
-        for (i, j), value in self.x.items():
-            if value == 1:
-                cost += self.grasp.h[i - 1] * self._get_distance_ij(i, j)
-
-        # Coste por asignaciones cliente -> pickup -> instalación
-        for (k, j), flow in self.s.items():
-            if flow > 0:
-                cost += self.grasp.d_kj[k][j] * flow
-
-        return cost
-
+from structure.solution import Solution
 
 class GRASPSearch:
     def __init__(self, params, instance, result_dir, logger, frac_neighbors: int = 4, 
@@ -329,6 +17,8 @@ class GRASPSearch:
         self.K_i = params['K_i']
         self.p = params['p']
         self.t = params['t']
+        self.n_pickups = len(params['K'])
+        self.n_customers = len(self.I)
         
         # Configuración del algoritmo
         self.alpha = alpha
@@ -378,97 +68,257 @@ class GRASPSearch:
         self._save_best_sol(solve_time=elapsed)
     
     def local_search(self, solution):
-        """Búsqueda local optimizada"""
+        """
+        Búsqueda local según metodología GRASP
+        
+        Implementa estrategia first-improving como recomienda el paper:
+        "In practice, we observed on many applications that quite often both strategies 
+        lead to the same final solution, but in smaller computation times when the 
+        first-improving strategy is used."
+        """
         current = Solution(self, other_solution=solution)
+        current.evaluate()
+        
+        self.logger.info(f"Iniciando búsqueda local desde costo: {current.cost}")
+        
         improved = True
+        iteration = 0
         
         while improved:
             improved = False
+            iteration += 1
+            
+            self.logger.debug(f"Iteración de búsqueda local: {iteration}")
+            
+            # Explorar vecindarios en orden: primero instalaciones, luego puntos de recogida
+            # Esto sigue el principio de explorar vecindarios simples primero
+            
+            # Vecindario 1: Intercambio de instalaciones
+            neighbor = self._explore_facility_neighborhood(current)
+            if neighbor and neighbor.cost < current.cost:
+                current = neighbor
+                improved = True
+                self.logger.debug(f"Mejora encontrada (instalaciones): {current.cost}")
+                continue  # First-improving: tomar primera mejora encontrada
+            
+            # Vecindario 2: Intercambio de puntos de recogida
+            neighbor = self._explore_pickup_neighborhood(current)
+            if neighbor and neighbor.cost < current.cost:
+                current = neighbor
+                improved = True
+                self.logger.debug(f"Mejora encontrada (puntos recogida): {current.cost}")
+                continue  # First-improving: tomar primera mejora encontrada
+            
+            # Vecindario 3: Intercambio combinado (más costoso, solo si otros fallan)
+            neighbor = self._explore_combined_neighborhood(current)
+            if neighbor and neighbor.cost < current.cost:
+                current = neighbor
+                improved = True
+                self.logger.debug(f"Mejora encontrada (combinado): {current.cost}")
+        
+        self.logger.info(f"Búsqueda local terminada después de {iteration} iteraciones. Costo final: {current.cost}")
+        return current
+
+    def _explore_facility_neighborhood(self, solution):
+        """
+        Explora el vecindario de intercambio de instalaciones (1-1 swap)
+        Implementa first-improving strategy
+        """
+        if not solution.open_facilities or not solution.closed_facilities:
+            return None
+        
+        # Ordenar instalaciones para exploración sistemática
+        open_facilities = sorted(solution.open_facilities)
+        closed_facilities = sorted(solution.closed_facilities)
+        
+        for facility_out in open_facilities:
+            for facility_in in closed_facilities:
+                # Crear vecino con intercambio 1-1
+                neighbor = Solution(self, other_solution=solution)
+                neighbor.y[facility_out-1] = 0 # Cerrar facilidad
+                neighbor.y[facility_in-1] = 1   # Abrir facilidad
+                
+                # Reasignar clientes y evaluar
+                neighbor._assign_customers()
+                neighbor.evaluate()
+                
+                # First-improving: devolver primera mejora encontrada
+                if neighbor.cost < solution.cost:
+                    self.logger.debug(f"Intercambio facilidades: {facility_out} -> {facility_in}, "
+                                            f"mejora: {solution.cost - neighbor.cost:.2f}")
+                    return neighbor
+        
+        return None
+
+    def _explore_pickup_neighborhood(self, solution):
+        """
+        Explora el vecindario de intercambio de puntos de recogida (1-1 swap)
+        Implementa first-improving strategy
+        """
+        if not solution.open_pickups or not solution.closed_pickups:
+            return None
+        
+        # Ordenar puntos de recogida para exploración sistemática
+        open_pickups = sorted(solution.open_pickups)
+        closed_pickups = sorted(solution.closed_pickups)
+        
+        for pickup_out in open_pickups:
+            for pickup_in in closed_pickups:
+                # Crear vecino con intercambio 1-1
+                neighbor = Solution(self, other_solution=solution)
+                neighbor.nu[self.K.index(pickup_out)] = 0  # Cerrar punto
+                neighbor.nu[self.K.index(pickup_in)] = 1   # Abrir punto
+                
+                # Reasignar clientes y evaluar
+                neighbor._assign_customers()
+                neighbor.evaluate()
+                
+                # First-improving: devolver primera mejora encontrada
+                if neighbor.cost < solution.cost:
+                    self.logger.debug(f"Intercambio puntos recogida: {pickup_out} -> {pickup_in}, "
+                                            f"mejora: {solution.cost - neighbor.cost:.2f}")
+                    return neighbor
+        
+        return None
+
+    def _explore_combined_neighborhood(self, solution):
+        """
+        Explora vecindario combinado: intercambio simultáneo de instalación y punto de recogida
+        Solo se usa si los vecindarios simples no encuentran mejoras
+        """
+        if (not solution.open_facilities or not solution.closed_facilities or 
+            not solution.open_pickups or not solution.closed_pickups):
+            return None
+        
+        # Limitar búsqueda combinada para evitar explosión combinatoria
+        max_facility_swaps = min(3, len(solution.open_facilities), len(solution.closed_facilities))
+        max_pickup_swaps = min(3, len(solution.open_pickups), len(solution.closed_pickups))
+        
+        open_facilities = random.sample(solution.open_facilities, max_facility_swaps)
+        closed_facilities = random.sample(solution.closed_facilities, max_facility_swaps)
+        open_pickups = random.sample(solution.open_pickups, max_pickup_swaps)
+        closed_pickups = random.sample(solution.closed_pickups, max_pickup_swaps)
+        
+        for facility_out in open_facilities:
+            for facility_in in closed_facilities:
+                for pickup_out in open_pickups:
+                    for pickup_in in closed_pickups:
+                        # Crear vecino con intercambio combinado
+                        neighbor = Solution(self, other_solution=solution)
+                        neighbor.y[facility_out-1] = 0
+                        neighbor.y[facility_in-1] = 1
+                        neighbor.nu[self.K.index(pickup_out)] = 0
+                        neighbor.nu[self.K.index(pickup_in)] = 1
+                        
+                        # Reasignar clientes y evaluar
+                        neighbor._assign_customers()
+                        neighbor.evaluate()
+                        
+                        # First-improving: devolver primera mejora encontrada
+                        if neighbor.cost < solution.cost:
+                            self.logger.debug(f"Intercambio combinado: F({facility_out}->{facility_in}), "
+                                                    f"P({pickup_out}->{pickup_in}), "
+                                                    f"mejora: {solution.cost - neighbor.cost:.2f}")
+                            return neighbor
+        
+        return None
+
+    def generate_neighbors_systematic(self, solution, max_neighbors=None):
+        """
+        Generación sistemática de vecinos para análisis completo del vecindario
+        Útil para debugging o cuando se necesita exploración exhaustiva
+        """
+        neighbors = []
+        
+        # Vecinos por intercambio de instalaciones
+        if solution.open_facilities and solution.closed_facilities:
+            for facility_out in solution.open_facilities:
+                for facility_in in solution.closed_facilities:
+                    neighbor = Solution(self, other_solution=solution)
+                    neighbor.y[facility_out-1] = 0
+                    neighbor.y[facility_in-1] = 1
+                    neighbor._assign_customers()
+                    neighbors.append(neighbor)
+                    
+                    if max_neighbors and len(neighbors) >= max_neighbors:
+                        return neighbors
+        
+        # Vecinos por intercambio de puntos de recogida
+        if solution.open_pickups and solution.closed_pickups:
+            for pickup_out in solution.open_pickups:
+                for pickup_in in solution.closed_pickups:
+                    neighbor = Solution(self, other_solution=solution)
+                    neighbor.nu[self.K.index(pickup_out)] = 0
+                    neighbor.nu[self.K.index(pickup_in)] = 1
+                    neighbor._assign_customers()
+                    neighbors.append(neighbor)
+                    
+                    if max_neighbors and len(neighbors) >= max_neighbors:
+                        return neighbors
+        
+        return neighbors
+
+    def local_search_best_improving(self, solution):
+        """
+        Variante de búsqueda local con estrategia best-improving
+        Útil para comparación o cuando se prefiere calidad sobre velocidad
+        """
+        current = Solution(self, other_solution=solution)
+        current.evaluate()
+        
+        improved = True
+        iteration = 0
+        
+        while improved:
+            improved = False
+            iteration += 1
             best_neighbor = None
             best_cost = current.cost
             
-            # Generar y evaluar vecinos con límite dinámico
-            neighbor_count = 0
-            for neighbor in self.generate_neighbors(solution=current, num_neighbors=self.num_neighbors):
-                neighbor.evaluate()
-                neighbor_count += 1
-                
+            # Generar todos los vecinos del vecindario actual
+            all_neighbors = []
+            
+            # Vecindario de instalaciones
+            facility_neighbors = []
+            if current.open_facilities and current.closed_facilities:
+                for facility_out in current.open_facilities:
+                    for facility_in in current.closed_facilities:
+                        neighbor = Solution(self, other_solution=current)
+                        neighbor.y[facility_out-1] = 0
+                        neighbor.y[facility_in-1] = 1
+                        neighbor._assign_customers()
+                        neighbor.evaluate()
+                        facility_neighbors.append(neighbor)
+            
+            all_neighbors.extend(facility_neighbors)
+            
+            # Vecindario de puntos de recogida
+            pickup_neighbors = []
+            if current.open_pickups and current.closed_pickups:
+                for pickup_out in current.open_pickups:
+                    for pickup_in in current.closed_pickups:
+                        neighbor = Solution(self, other_solution=current)
+                        neighbor.nu[self.K.index(pickup_out)] = 0
+                        neighbor.nu[self.K.index(pickup_in)] = 1
+                        neighbor._assign_customers()
+                        neighbor.evaluate()
+                        pickup_neighbors.append(neighbor)
+            
+            all_neighbors.extend(pickup_neighbors)
+            
+            # Encontrar el mejor vecino
+            for neighbor in all_neighbors:
                 if neighbor.cost < best_cost:
                     best_cost = neighbor.cost
                     best_neighbor = neighbor
-                
-                # Límite dinámico basado en mejoras encontradas
-                if neighbor_count >= self.num_neighbors and best_neighbor is not None:
-                    break
             
             # Actualizar si se encontró mejora
             if best_neighbor:
                 current = best_neighbor
                 improved = True
+                self.logger.debug(f"Mejor mejora encontrada: {best_cost}")
         
         return current
-    
-    def generate_neighbors(self, solution, num_neighbors=20):
-        """Generación optimizada de vecinos con evitar duplicados eficientemente"""
-        neighbors = []
-        attempts = 0
-        max_attempts = num_neighbors * 3  # Límite para evitar loops infinitos
-        
-        # Usar conjuntos para tracking más eficiente
-        seen_facility_configs = set()
-        seen_pickup_configs = set()
-        
-        while len(neighbors) < num_neighbors and attempts < max_attempts:
-            attempts += 1
-            
-            # Alternar entre tipos de vecinos para variedad
-            neighbor_type = attempts % 2
-            
-            if neighbor_type == 0 and solution.open_facilities and solution.closed_facilities:
-                # Intercambio de instalaciones
-                num_to_swap = random.randint(1, min(self.p, len(solution.open_facilities), len(solution.closed_facilities)))
-                
-                facilities_to_close = random.sample(solution.open_facilities, num_to_swap)
-                facilities_to_open = random.sample(solution.closed_facilities, num_to_swap)
-                
-                # Crear configuración como tupla ordenada
-                config = tuple(sorted([(f, 0) for f in facilities_to_close] + 
-                                    [(f, 1) for f in facilities_to_open]))
-                
-                if config not in seen_facility_configs:
-                    seen_facility_configs.add(config)
-                    
-                    neighbor = Solution(self, other_solution=solution)
-                    for facility in facilities_to_close:
-                        neighbor._set_y(facility, 0)
-                    for facility in facilities_to_open:
-                        neighbor._set_y(facility, 1)
-                    
-                    neighbors.append(neighbor)
-                    
-            elif neighbor_type == 1 and solution.open_pickups and solution.closed_pickups:
-                # Intercambio de puntos de recogida
-                num_to_swap = random.randint(1, min(self.t, len(solution.open_pickups), len(solution.closed_pickups)))
-                
-                pickups_to_close = random.sample(solution.open_pickups, num_to_swap)
-                pickups_to_open = random.sample(solution.closed_pickups, num_to_swap)
-                
-                # Crear configuración como tupla ordenada
-                config = tuple(sorted([(p, 0) for p in pickups_to_close] + 
-                                    [(p, 1) for p in pickups_to_open]))
-                
-                if config not in seen_pickup_configs:
-                    seen_pickup_configs.add(config)
-                    
-                    neighbor = Solution(self, other_solution=solution)
-                    for pickup in pickups_to_close:
-                        neighbor._set_nu(pickup, 0)
-                    for pickup in pickups_to_open:
-                        neighbor._set_nu(pickup, 1)
-                    
-                    neighbors.append(neighbor)
-        
-        return neighbors
     
     def _save_best_sol(self, solve_time):
         """Guardado optimizado de la mejor solución"""

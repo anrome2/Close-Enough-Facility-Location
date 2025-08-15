@@ -201,7 +201,7 @@ def run_grasp_committee_parallel(params, instance, result_dir, logger, alpha=0.3
     
     return best_solution
 
-def run_tabu_committee_parallel(params, instance, result_dir, logger, inicialization="random", max_iter=50, num_runs=5, tabu_tenure=7, problem="P2", num_processes=None):
+def run_tabu_committee_parallel(params, instance, result_dir, logger, inicialization="random", max_iter=50, num_runs=5, tabu_tenure=0.25, problem="P2", num_processes=None):
     """Versión paralelizada del comité TABU usando paralelización plana"""
     if num_processes is None:
         num_processes = min(cpu_count(), num_runs)
@@ -973,7 +973,7 @@ def run_tabu_once(params, instance, result_dir, problem, logger, inicialization,
     tabu.run()
     return deepcopy(tabu.best_solution)
 
-def run_tabu_committee(params, instance, result_dir, logger, inicialization="random", max_iter=50, num_runs=5, tabu_tenure=7, problem="P2"):
+def run_tabu_committee(params, instance, result_dir, logger, inicialization="random", max_iter=50, num_runs=5, tabu_tenure=0.25, problem="P2"):
     # Redirigir a la versión paralela
     return run_tabu_committee_parallel(params, instance, result_dir, logger, inicialization, max_iter, num_runs, tabu_tenure, problem)
 

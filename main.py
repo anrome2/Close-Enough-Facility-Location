@@ -24,15 +24,15 @@ PARAMS = [
 CONFIG = {
     'save_results': True,
     'problem': 'P1', # Puede ser 'P1' o 'P2'
-    'algorithm': 'GENETIC',  # Puede ser 'GRASP' o 'MILP' o 'TABU' o 'GENETIC'
-    'optimization_solver': 'CPLEX',  # Puede ser 'CBC', 'GLPK' o 'CPLEX'
-    'inicialization': 'greedy',  # Puede ser 'random', 'kmeans' o 'greedy'
+    'algorithm': 'GRASP',  # Puede ser 'GRASP' o 'MILP' o 'TABU' o 'GENETIC'
+    'optimization_solver': 'CBC',  # Puede ser 'CBC', 'GLPK' o 'CPLEX'
+    'inicialization': 'random',  # Puede ser 'random', 'kmeans' o 'greedy'
     'comitee': False,  # Si se usa comité GRASP
     'hyperparam_search': False,  # Si se busca la mejor combinación de hiperparámetros
     'type_search': 'random',  # Tipo de búsqueda de hiperparámetros, puede ser 'grid', 'random' o 'bayesian'
-    'alpha': 0.3,  # Parámetro de aleatoriedad para GREEDY
+    'alpha': 0.65,  # Parámetro de aleatoriedad para GREEDY
     'frac_neighbors': 3,  # Fracción a dividir el total de clientes para obtener el número de vecinos a generar por iteración
-    'tabu_tenure': 10,  # Tenencia para el algoritmo Tabu
+    'tabu_tenure': 0.35,  # Tenencia para el algoritmo Tabu
     'time_limit': 7200,  # Límite de tiempo en segundos para la resolución del MILP
     'max_iter': None,  # Máximo número de iteraciones para el algoritmo Tabu
 }
@@ -143,7 +143,7 @@ def executeInstance(
                 algorithm: str = "GRASP", 
                 optimizer: str = "CBC", 
                 inicialization: str = "random", 
-                tabu_tenure: int = 10,
+                tabu_tenure: float = 0.25,
                 comitee: bool = False, 
                 hiperparam_search: bool = False,
                 type_search: str = 'grid',  
@@ -187,7 +187,7 @@ def run_single_instance(args_tuple):
     optimizer = current_config['optimization_solver']
     problem = current_config['problem']
     type_search = current_config.get('type_search', 'grid')
-    tabu_tenure = current_config.get('tabu_tenure', 10)
+    tabu_tenure = current_config.get('tabu_tenure', 0.25)
     inicialization = current_config['inicialization']
     alpha = current_config.get('alpha', 0.3)
     frac_neighbors = current_config.get('frac_neighbors', 4)
