@@ -218,94 +218,199 @@ class Solution:
     def initialize_kmeans(self):
         """Inicialización usando K-means para una mejor distribución espacial"""
         try:
-            # Coordenadas para instalaciones
-            facility_coords = np.array([
-                [j, sum(self._get_distance_ij(i, j) for i in self.algorithm.I) / len(self.algorithm.I)]
-                for j in self.algorithm.J
-            ])
-            facility_indices = np.array(list(self.algorithm.J))
-
-            if len(facility_coords) > self.algorithm.p:
-                kmeans_facilities = KMeans(n_clusters=self.algorithm.p, random_state=42, n_init=10)
-                kmeans_facilities.fit(facility_coords)
-                centers = kmeans_facilities.cluster_centers_
-
-                # Buscar la instalación más cercana a cada centroide
-                selected_facilities = set()
-                coords_matrix = facility_coords[:, None, :]  # shape: (n, 1, 2)
-                centers_matrix = centers[None, :, :]          # shape: (1, k, 2)
-                distances = np.linalg.norm(coords_matrix - centers_matrix, axis=2)  # shape: (n, k)
-
-                closest_indices = np.argmin(distances, axis=0)
-                selected_facilities.update(facility_indices[closest_indices])
-
-                # Completar si faltan instalaciones
-                if len(selected_facilities) < self.algorithm.p:
-                    remaining = [j for j in self.algorithm.J if j not in selected_facilities]
-                    avg_dist = {
-                        j: sum(self._get_distance_ij(i, j) for i in self.algorithm.I) / len(self.algorithm.I)
-                        for j in remaining
-                    }
-                    sorted_remaining = sorted(avg_dist, key=avg_dist.get)
-                    selected_facilities.update(sorted_remaining[:self.algorithm.p - len(selected_facilities)])
-            else:
-                selected_facilities = set(self.algorithm.J)
-
-            # Activar instalaciones seleccionadas
-            for j in selected_facilities:
-                self.y[j] = 1
-
-            self.algorithm.logger.info(f"[K-means] Instalaciones seleccionadas: {[j for j in selected_facilities]}")
-
-            # Coordenadas para puntos de recogida
-            if self.open_facilities:
-                open_set = set(self.open_facilities)
-                pickup_coords = np.array([
-                    [k, sum(self.algorithm.d_kj[k][j] for j in open_set if self.algorithm.d_kj[k][j] != float('inf')) / len(open_set)]
-                    for k in self.algorithm.K
-                ])
-            else:
-                pickup_coords = np.array([[k, 0] for k in self.algorithm.K])
-
-            pickup_indices = np.array(list(self.algorithm.K))
-
-            if len(pickup_coords) > self.algorithm.t:
-                kmeans_pickups = KMeans(n_clusters=self.algorithm.t, random_state=42, n_init=10)
-                kmeans_pickups.fit(pickup_coords)
-                centers = kmeans_pickups.cluster_centers_
-
-                coords_matrix = pickup_coords[:, None, :]
-                centers_matrix = centers[None, :, :]
-                distances = np.linalg.norm(coords_matrix - centers_matrix, axis=2)
-
-                closest_indices = np.argmin(distances, axis=0)
-                selected_pickups = set(pickup_indices[closest_indices])
-
-                if len(selected_pickups) < self.algorithm.t:
-                    remaining = [k for k in self.algorithm.K if k not in selected_pickups]
-                    pickup_scores = {}
-                    for k in remaining:
-                        if self.open_facilities:
-                            dists = [self.algorithm.d_kj[k][j] for j in self.open_facilities if self.algorithm.d_kj[k][j] != float('inf')]
-                            pickup_scores[k] = sum(dists) / len(dists) if dists else float('inf')
-                        else:
-                            pickup_scores[k] = float('inf')
-                    sorted_remaining = sorted(pickup_scores, key=pickup_scores.get)
-                    selected_pickups.update(sorted_remaining[:self.algorithm.t - len(selected_pickups)])
-            else:
-                selected_pickups = set(self.algorithm.K)
-
-            # Activar puntos de recogida seleccionados
-            for k in selected_pickups:
-                self.nu[k] = 1
-
-            self.algorithm.logger.info(f"[K-means] Puntos de recogida seleccionados: {[k for k in selected_pickups]}")
-
+            self._initialize_facilities_kmeans()
+            self._initialize_pickups_kmeans()
             self.evaluate()
-
+            
         except Exception as e:
             self.algorithm.logger.error(f"Error en inicialización K-means: {e}")
             self.initialize_greedy()
+
+    def _initialize_facilities_kmeans(self):
+        """Inicialización de instalaciones usando K-means"""
+        
+        # Crear coordenadas basadas en posición geográfica real si está disponible
+        if hasattr(self.algorithm, 'facility_coords') and self.algorithm.facility_coords is not None:
+            facility_coords = np.array([coords for coords in self.algorithm.facility_coords])
+        else:
+            # Fallback: usar distancias promedio como proxy de ubicación
+            facility_coords = []
+            for j in self.algorithm.J:
+                # Calcular centroide de distancias a todos los clientes
+                distances = [self._get_distance_ij(i, j) for i in self.algorithm.I]
+                avg_dist = np.mean(distances)
+                std_dist = np.std(distances)
+                facility_coords.append([avg_dist, std_dist])
+            facility_coords = np.array(facility_coords)
+        
+        # Normalizar coordenadas para mejorar clustering
+        from sklearn.preprocessing import StandardScaler
+        scaler = StandardScaler()
+        facility_coords_norm = scaler.fit_transform(facility_coords)
+        
+        # Aplicar K-means con múltiples intentos para mejor resultado
+        best_score = float('inf')
+        best_facilities = None
+        
+        for attempt in range(5):  # Múltiples intentos con diferentes seeds
+            kmeans = KMeans(
+                n_clusters=self.algorithm.p, 
+                random_state=42 + attempt,
+                n_init=20,  # Más inicializaciones para mejor convergencia
+                max_iter=300
+            )
+            cluster_labels = kmeans.fit_predict(facility_coords_norm)
+            centers = kmeans.cluster_centers_
+            
+            # Seleccionar la instalación más cercana a cada centroide
+            selected_facilities = set()
+            for cluster_id in range(self.algorithm.p):
+                cluster_mask = cluster_labels == cluster_id
+                if not np.any(cluster_mask):
+                    continue
+                    
+                cluster_coords = facility_coords_norm[cluster_mask]
+                cluster_facilities = np.array(list(self.algorithm.J))[cluster_mask]
+                
+                # Encontrar la instalación más cercana al centroide del cluster
+                distances_to_center = np.linalg.norm(
+                    cluster_coords - centers[cluster_id], axis=1
+                )
+                closest_idx = np.argmin(distances_to_center)
+                selected_facilities.add(cluster_facilities[closest_idx])
+            
+            # Evaluar calidad de la solución (suma de distancias promedio)
+            if len(selected_facilities) == self.algorithm.p:
+                score = sum(
+                    np.mean([self._get_distance_ij(i, j) for i in self.algorithm.I])
+                    for j in selected_facilities
+                )
+                if score < best_score:
+                    best_score = score
+                    best_facilities = selected_facilities.copy()
+        
+        # Usar la mejor solución encontrada
+        selected_facilities = best_facilities or selected_facilities
+        
+        # Completar si faltan instalaciones (por clusters vacíos)
+        if len(selected_facilities) < self.algorithm.p:
+            remaining = [j for j in self.algorithm.J if j not in selected_facilities]
+            # Ordenar por distancia promedio a clientes
+            remaining_scores = {
+                j: np.mean([self._get_distance_ij(i, j) for i in self.algorithm.I])
+                for j in remaining
+            }
+            sorted_remaining = sorted(remaining_scores.items(), key=lambda x: x[1])
+            needed = self.algorithm.p - len(selected_facilities)
+            selected_facilities.update([j for j, _ in sorted_remaining[:needed]])
+        
+        # Activar instalaciones seleccionadas
+        for j in selected_facilities:
+            self.y[j] = 1
+            
+        self.algorithm.logger.info(
+            f"[K-means] Instalaciones seleccionadas: {sorted(selected_facilities)}"
+        )
+
+    def _initialize_pickups_kmeans(self):
+        """Inicialización de puntos de recogida usando K-means"""
+        # Obtener instalaciones abiertas
+        open_facilities = [j for j in self.algorithm.J if self.y[j] == 1]
+        
+        if not open_facilities:
+            self.algorithm.logger.warning("No hay instalaciones abiertas para inicializar puntos de recogida")
+            return
+        
+        if len(self.algorithm.K) <= self.algorithm.t:
+            # Si tenemos pocos puntos de recogida, seleccionar todos
+            for k in self.algorithm.K:
+                self.nu[k] = 1
+            self.algorithm.logger.info(f"[K-means] Todos los puntos de recogida seleccionados: {list(self.algorithm.K)}")
+            return
+        
+        # Crear coordenadas para puntos de recogida
+        if hasattr(self.algorithm, 'pickup_coords') and self.algorithm.pickup_coords is not None:
+            pickup_coords = np.array([self.algorithm.pickup_coords[k] for k in self.algorithm.K])
+        else:
+            # Fallback: usar distancias a instalaciones abiertas
+            pickup_coords = []
+            for k in self.algorithm.K:
+                distances = []
+                for j in open_facilities:
+                    if (k in self.algorithm.d_kj and j in self.algorithm.d_kj[k] and 
+                        self.algorithm.d_kj[k][j] != float('inf')):
+                        distances.append(self.algorithm.d_kj[k][j])
+                
+                if distances:
+                    avg_dist = np.mean(distances)
+                    min_dist = np.min(distances)
+                    pickup_coords.append([avg_dist, min_dist])
+                else:
+                    pickup_coords.append([float('inf'), float('inf')])
+            
+            pickup_coords = np.array(pickup_coords)
+            # Filtrar puntos con distancias infinitas
+            valid_mask = ~np.isinf(pickup_coords).any(axis=1)
+            if not np.any(valid_mask):
+                # Si todos tienen distancias infinitas, usar inicialización greedy
+                self.algorithm.logger.warning("Todas las distancias son infinitas, usando inicialización greedy para pickups")
+                return
+        
+        # Normalizar coordenadas
+        from sklearn.preprocessing import StandardScaler
+        scaler = StandardScaler()
+        pickup_coords_norm = scaler.fit_transform(pickup_coords)
+        
+        # Aplicar K-means
+        kmeans = KMeans(
+            n_clusters=min(self.algorithm.t, len(self.algorithm.K)),
+            random_state=42,
+            n_init=20,
+            max_iter=300
+        )
+        cluster_labels = kmeans.fit_predict(pickup_coords_norm)
+        centers = kmeans.cluster_centers_
+        
+        # Seleccionar el punto de recogida más cercano a cada centroide
+        selected_pickups = set()
+        for cluster_id in range(min(self.algorithm.t, len(self.algorithm.K))):
+            cluster_mask = cluster_labels == cluster_id
+            if not np.any(cluster_mask):
+                continue
+                
+            cluster_coords = pickup_coords_norm[cluster_mask]
+            cluster_pickups = np.array(list(self.algorithm.K))[cluster_mask]
+            
+            distances_to_center = np.linalg.norm(
+                cluster_coords - centers[cluster_id], axis=1
+            )
+            closest_idx = np.argmin(distances_to_center)
+            selected_pickups.add(cluster_pickups[closest_idx])
+        
+        # Completar si faltan puntos de recogida
+        if len(selected_pickups) < self.algorithm.t:
+            remaining = [k for k in self.algorithm.K if k not in selected_pickups]
+            # Ordenar por calidad (distancia promedio a instalaciones abiertas)
+            remaining_scores = {}
+            for k in remaining:
+                distances = []
+                for j in open_facilities:
+                    if (k in self.algorithm.d_kj and j in self.algorithm.d_kj[k] and 
+                        self.algorithm.d_kj[k][j] != float('inf')):
+                        distances.append(self.algorithm.d_kj[k][j])
+                remaining_scores[k] = np.mean(distances) if distances else float('inf')
+            
+            sorted_remaining = sorted(remaining_scores.items(), key=lambda x: x[1])
+            needed = self.algorithm.t - len(selected_pickups)
+            selected_pickups.update([k for k, _ in sorted_remaining[:needed]])
+        
+        # Activar puntos de recogida seleccionados
+        for k in selected_pickups:
+            self.nu[k] = 1
+            
+        self.algorithm.logger.info(
+            f"[K-means] Puntos de recogida seleccionados: {sorted(selected_pickups)}"
+        )
     
     def initialize_random(self):
         try:
@@ -378,7 +483,7 @@ class Solution:
                 cost = self._calculate_cost_P2()
             
             self.cost = cost
-            self.algorithm.logger.info(f"Costo total calculado: {self.cost}")
+            self.algorithm.logger.debug(f"Costo total calculado: {self.cost}")
             return cost
         
         except Exception as e:

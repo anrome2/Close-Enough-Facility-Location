@@ -103,7 +103,7 @@ class TabuSearch:
         """Inicialización con manejo de errores mejorado"""
         try:
             if self.inicialization == "greedy":
-                self.current_solution.initialize_greedy()
+                self.current_solution.initialize_greedy(alpha=0)
             elif self.inicialization == "random":
                 self.current_solution.initialize_random()
             elif self.inicialization == "kmeans":
