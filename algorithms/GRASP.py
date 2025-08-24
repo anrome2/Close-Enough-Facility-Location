@@ -19,14 +19,14 @@ class GRASPSearch:
         self.K_i = params['K_i']
         self.p = params['p']
         self.t = params['t']
-        self.n_pickups = len(params['K'])
+        self.n_pickups = len(self.K)
         self.n_customers = len(self.I)
         
         # Configuración del algoritmo
         self.alpha = alpha
         self.frac_neighbors = frac_neighbors
-        self.max_iter = max_iter if max_iter else len(self.I)
-        self.num_neighbors = max(1, len(self.I) // self.frac_neighbors)
+        self.max_iter = max_iter if max_iter else self.n_customers
+        self.num_neighbors = max(1, self.n_customers // self.frac_neighbors)
         
         # Estado del algoritmo
         self.best_solution = None
@@ -47,11 +47,17 @@ class GRASPSearch:
         self.pickup_to_index = {k: idx for idx, k in enumerate(self.K)}
         
         # Límites para controlar explosión combinatoria
-        self.max_facility_moves = min(20, len(self.J))
-        self.max_pickup_moves = min(20, len(self.K))
-        
-        # Cache para evaluaciones de vecindario
-        self.evaluation_cache = {}
+        self.max_facility_moves = min(10, self.n_customers)
+        self.max_pickup_moves = min(15, self.n_pickups)
+
+        # Pre-computar distancias promedio para ordenamiento
+        self.avg_distances_ij = {}
+        for j in self.J:
+            self.avg_distances_ij[j] = sum(self.d_ij[min(i,j)][max(i,j)] for i in self.I if i!=j) / (1-self.n_customers)
+            
+        self.avg_distances_kj = {}
+        for k in self.K:
+            self.avg_distances_kj[k] = sum(self.d_kj[k][j] for j in self.J) / self.n_customers
     
     def run(self):
         """Ejecución principal del algoritmo GRASP mejorado"""
@@ -121,7 +127,7 @@ class GRASPSearch:
             # Explorar vecindarios con priorización
             # Vecindario 1: Intercambio de instalaciones pivotales
             neighbor = self._explore_pivotal_facility_neighborhood(current, pivotal_facilities)
-            if neighbor and neighbor.cost < current.cost:
+            if neighbor:
                 current = neighbor
                 improved = True
                 self.logger.debug(f"Mejora encontrada (instalaciones pivotales): {current.cost}")
@@ -129,7 +135,7 @@ class GRASPSearch:
             
             # Vecindario 2: Intercambio de puntos de recogida pivotales
             neighbor = self._explore_pivotal_pickup_neighborhood(current, pivotal_pickups)
-            if neighbor and neighbor.cost < current.cost:
+            if neighbor:
                 current = neighbor
                 improved = True
                 self.logger.debug(f"Mejora encontrada (puntos recogida pivotales): {current.cost}")
@@ -137,14 +143,14 @@ class GRASPSearch:
             
             # Vecindario 3: Intercambio general si pivotales fallan
             neighbor = self._explore_general_facility_neighborhood(current)
-            if neighbor and neighbor.cost < current.cost:
+            if neighbor:
                 current = neighbor
                 improved = True
                 self.logger.debug(f"Mejora encontrada (instalaciones generales): {current.cost}")
                 continue
                 
             neighbor = self._explore_general_pickup_neighborhood(current)
-            if neighbor and neighbor.cost < current.cost:
+            if neighbor:
                 current = neighbor
                 improved = True
                 self.logger.debug(f"Mejora encontrada (puntos recogida generales): {current.cost}")
@@ -306,25 +312,18 @@ class GRASPSearch:
     
     def _sort_closed_facilities_by_potential(self, solution: Solution):
         """Ordena instalaciones cerradas por su potencial de mejora"""
-        potentials = []
-        for facility in solution.closed_facilities:
-            # Agregar factor de ubicación: proximidad promedio a clientes
-            avg_distance = sum(solution._get_distance_ij(i, facility) for i in self.I) / len(self.I)
-            
-            potentials.append((facility, avg_distance))
+        potentials = [(facility, self.avg_distances_ij[facility]) 
+                     for facility in solution.closed_facilities]
         
-        # Ordenar por potencial (mayor potencial primero)
-        return [f[0] for f in sorted(potentials, key=lambda x: x[1], reverse=True)]
+        # Ordenar por potencial (menor distancia promedio primero para mejor potencial)
+        return [f[0] for f in sorted(potentials, key=lambda x: x[1])]
     
     def _sort_closed_pickups_by_potential(self, solution: Solution):
         """Ordena puntos de recogida cerrados por su potencial de mejora"""
-        potentials = []
-        for pickup in solution.closed_pickups:
-            # Agregar factor de ubicación
-            avg_distance = sum(self.d_kj[pickup][j] for j in self.J) / len(self.J)
-            potentials.append((pickup, avg_distance))
+        potentials = [(pickup, self.avg_distances_kj[pickup]) 
+                     for pickup in solution.closed_pickups]
         
-        return [p[0] for p in sorted(potentials, key=lambda x: x[1], reverse=True)]
+        return [p[0] for p in sorted(potentials, key=lambda x: x[1])]
     
     def _create_facility_swap_neighbor(self, solution, facility_out, facility_in):
         """Crea vecino optimizado para intercambio de instalaciones"""
