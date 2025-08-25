@@ -2,9 +2,10 @@ def readInstance(path):
     instance = {}
     with open(path, "r") as f:
         # Leer n y p
-        n, p = map(int, f.readline().split())
+        n, p, t = map(int, f.readline().split())
         instance['n'] = n
         instance['p'] = p
+        instance['t'] = t
         instance['d'] = {}  # Matriz de distancias
         instance['nodes'] = {}  # Información de los nodos
         

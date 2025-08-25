@@ -6,20 +6,11 @@ from datetime import datetime
 from Comittee_agent import run_genetic_committee, run_genetic_once, run_grasp_committee, run_grasp_hyperparam_search, run_grasp_once, run_tabu_committee, run_tabu_hyperparam_search, run_tabu_once
 from algorithms.MILP import milp_ceflp as MILP
 
+from structure.create_instances import map_R
 from structure.instances import readInstance
 from structure.pickuppoints import get_dict_distances, get_dict_pickuppoints, get_pickuppoints
 
 # C:\Users\Andrea\Documents\TFM\.venv\Scripts\Activate.ps1
-
-# Tabla con valores t y R para cada instancia (índice base 1)
-PARAMS = [
-    (3, 2.69), (10, 2.98), (10, 2.98), (10, 2.98), (10, 2.98), (10, 2.98), (10, 3.25), (10, 3.25), (10, 3.25), (10, 3.25),
-    (10, 3.25), (10, 3.25), (10, 3.25), (10, 3.25), (10, 3.25), (3, 5.39), (10, 5.96), (10, 5.96), (10, 5.96), (10, 5.96),
-    (10, 5.96), (10, 6.51), (10, 6.51), (10, 6.51), (10, 6.51), (10, 6.51), (10, 6.51), (10, 6.51), (10, 6.51), (10, 6.51),
-    (3, 10.77), (10, 11.92), (10, 11.92), (10, 11.92), (10, 11.92), (10, 11.92), (10, 13.01), (10, 13.01), (10, 13.01), (10, 13.01),
-    (10, 13.01), (10, 13.01), (10, 13.01), (10, 13.01), (10, 13.01), (3, 16.16), (10, 17.88), (10, 17.88), (10, 17.88), (10, 17.88),
-    (10, 17.88), (10, 19.52), (10, 19.52), (10, 19.52), (10, 19.52), (10, 19.52), (10, 19.52), (10, 19.52), (10, 19.52), (10, 19.52)
-]
 
 CONFIG = {
     'save_results': True,
@@ -91,13 +82,12 @@ def create_params(path, i):
     t: número de puntos de recogida a abrir
     M_param: cota superior, por ejemplo, sum(h[i] for i in I)
     """
-    # Obtener parámetros t y R
-    t, R = PARAMS[i]
 
     # Leer la instancia
     instance_dict = readInstance(path)
     n = instance_dict['n']
     p = instance_dict['p']
+    t = instance_dict['t']
     h = [int(value['demand']) for _, value in instance_dict['nodes'].items()]
     M_param = sum(h[i] for i in range(n))
 
@@ -113,6 +103,8 @@ def create_params(path, i):
     I_k = get_dict_pickuppoints(customers_dict=instance_dict['nodes'], pickups_list=pickuppoints, R=R, type="candidate")
     # print(I_k)
     d_ij = instance_dict['d']
+    dist_max = max(d_ij.values(), key=lambda x: max(x.values())) if d_ij else 0
+    R = round(dist_max*map_R(i+1), 2)
     d_kj = get_dict_distances(I=instance_dict['nodes'], K=dist_pickuppoints)
     nodes_list = get_coordinates(instance_dict['nodes'])
     return {
