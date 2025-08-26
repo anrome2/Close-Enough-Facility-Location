@@ -3,13 +3,26 @@ __pycache__/
 
 # Directorios de entornos virtuales
 .venv/
+venv_ceflp/
 
 # Archivos ejecutables e instaladores
 *.exe
 *.jnlp
 winglpk-4.65/
 cplex_studio2212.win_x86_64.exe
+cplex_studio2211.linux_x86_64.bin
 dlmgr.pro
+cplex/
+concert/
+doc/
+cpoptimizer/
+license/
+opl/
+python/
+swidtag/
+Uninstall/
+README.html
+
 
 # Archivos de salida
 output/

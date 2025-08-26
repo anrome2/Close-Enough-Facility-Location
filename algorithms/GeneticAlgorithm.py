@@ -3,6 +3,7 @@ import time
 import traceback
 import random
 from typing import List, Tuple
+import numpy as np
 
 from structure.solution import Solution
 
@@ -25,15 +26,8 @@ class GeneticSearch:
                  tournament: int = 10,
                  mutation_rate: float = 0.05,
                  crossover_rate: float = 0.95,
-                 problem: str = "P2", 
-                 device: str = "cpu"
+                 problem: str = "P2"
                 ):
-        if device == "cuda":
-            import cupy as cp
-            self.xp = cp
-        else:
-            import numpy as np
-            self.xp = np
         self.I = params['I']
         self.J = params['J']
         self.n_customers = len(self.I)
@@ -88,7 +82,7 @@ class GeneticSearch:
                 raise
             
             # Actualizar mejor solución
-            gen_best_idx = self.xp.argmin(fitnesses)
+            gen_best_idx = np.argmin(fitnesses)
             gen_best_fitness = fitnesses[gen_best_idx]
             
             if gen_best_fitness < best_fitness:
@@ -159,7 +153,7 @@ class GeneticSearch:
     
     def _replace_worst(self, fitnesses, children, children_costs):
         """Reemplaza los peores individuos de la población"""
-        sorted_indices = self.xp.argsort(fitnesses)[::-1]  # De peor a mejor
+        sorted_indices = np.argsort(fitnesses)[::-1]  # De peor a mejor
         
         # Obtener costos de todos los candidatos a reemplazo
         all_costs = [fitnesses[sorted_indices[0]], fitnesses[sorted_indices[1]]] + children_costs
@@ -239,8 +233,8 @@ class GeneticSearch:
     
     def _repair_individual(self, individual, n_open: int):
         """Repara un individuo para que respete la restricción de tener exactamente n_open elementos abiertos."""
-        open_positions = self.xp.where(individual == 1)[0]
-        closed_positions = self.xp.where(individual == 0)[0]
+        open_positions = np.where(individual == 1)[0]
+        closed_positions = np.where(individual == 0)[0]
         num_open = len(open_positions)
         
         if num_open > n_open:

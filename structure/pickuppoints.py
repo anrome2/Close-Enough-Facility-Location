@@ -230,3 +230,29 @@ def clear_gpu_memory():
     pinned_mempool = cp.get_default_pinned_memory_pool()
     mempool.free_all_blocks()
     pinned_mempool.free_all_blocks()
+
+def get_max_from_nested_dict(d_ij):
+    """
+    Calcula el valor máximo en un diccionario de diccionarios anidados
+    utilizando la GPU a través de cuML.
+
+    Args:
+        d_ij (dict): Un diccionario anidado con la estructura {i: {j: valor}}.
+
+    Returns:
+        float: El valor máximo encontrado en el diccionario.
+    """
+    # 1. Extrae todos los valores numéricos del diccionario anidado
+    #    y los coloca en una lista de Python.
+    flat_values = [value for inner_dict in d_ij.values() for value in inner_dict.values()]
+
+    # 2. Convierte la lista de valores a un array de cuPy.
+    #    Esto mueve los datos de la memoria RAM a la memoria de la GPU.
+    gpu_array = cp.array(flat_values, dtype=cp.float32)
+
+    # 3. Usa la función de reducción 'max' de cuPy para encontrar
+    #    el valor máximo en el array en la GPU.
+    max_value = gpu_array.max()
+
+    # 4. Devuelve el resultado como un tipo de dato estándar de Python.
+    return max_value.get()

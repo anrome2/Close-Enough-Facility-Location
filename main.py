@@ -2,18 +2,18 @@ import logging
 import multiprocessing
 import os
 from datetime import datetime
+import time
 
 from Comittee_agent import run_genetic_committee, run_genetic_once, run_grasp_committee, run_grasp_hyperparam_search, run_grasp_once, run_tabu_committee, run_tabu_hyperparam_search, run_tabu_once
 from algorithms.MILP import milp_ceflp as MILP
 
-from structure.create_instances import get_max_from_nested_dict, map_R
+from structure.create_instances import map_R
 from structure.instances import readInstance
-from structure.pickuppoints import get_dict_distances, get_dict_pickuppoints, get_pickuppoints
+from structure.pickuppoints import get_dict_distances_optimized, get_dict_pickuppoints_optimized, get_max_from_nested_dict, get_pickuppoints_optimized
 
 # C:\Users\Andrea\Documents\TFM\.venv\Scripts\Activate.ps1
 
 CONFIG = {
-    'device': 'cuda',  # Puede ser 'cpu' o 'cuda'
     'save_results': True,
     'problem': 'P2', # Puede ser 'P1' o 'P2'
     'algorithm': 'MILP',  # Puede ser 'GRASP' o 'MILP' o 'TABU' o 'GENETIC'
@@ -25,7 +25,7 @@ CONFIG = {
     'alpha': 0.65,  # Parámetro de aleatoriedad para GREEDY
     'frac_neighbors': 3,  # Fracción a dividir el total de clientes para obtener el número de vecinos a generar por iteración
     'tabu_tenure': 0.35,  # Tenencia para el algoritmo Tabu
-    'time_limit': 300,  # Límite de tiempo en segundos para la resolución del MILP
+    'time_limit': 7200,  # Límite de tiempo en segundos para la resolución del MILP
     'max_iter': None,  # Máximo número de iteraciones para el algoritmo Tabu
 }
 
@@ -68,7 +68,7 @@ def get_coordinates(nodes):
     """
     return [(int(value['x']), int(value['y'])) for value in nodes.values()]
 
-def create_params(path, instance: int, device: str = "cpu") -> dict:
+def create_params(path, instance: int) -> dict:
     """
     Los conjuntos y parámetros son:
     I: lista de clientes
@@ -97,17 +97,17 @@ def create_params(path, instance: int, device: str = "cpu") -> dict:
     d_ij = instance_dict['d']
     dist_max = get_max_from_nested_dict(d_ij)
     R = round(dist_max*map_R(instance+1), 3)
-    dist_pickuppoints = get_pickuppoints(R=R, nodes=instance_dict['nodes'])
+    dist_pickuppoints = get_pickuppoints_optimized(R=R, nodes=instance_dict['nodes'])
     pickuppoints = [(round(float(x), 3), round(float(y), 3)) for x, y in dist_pickuppoints]
 
     # Para evitar problemas luego en la formulación 3-indices K no empezará en uno, sino en |I|
     K = [k+n+1 for k in range(len(pickuppoints))]
     # print(K)
-    K_i = get_dict_pickuppoints(customers_dict=instance_dict['nodes'], pickups_list=pickuppoints, R=R, type="customer", device=device)
-    I_k = get_dict_pickuppoints(customers_dict=instance_dict['nodes'], pickups_list=pickuppoints, R=R, type="candidate", device=device)
+    K_i = get_dict_pickuppoints_optimized(customers_dict=instance_dict['nodes'], pickups_list=pickuppoints, R=R, type="customer")
+    I_k = get_dict_pickuppoints_optimized(customers_dict=instance_dict['nodes'], pickups_list=pickuppoints, R=R, type="candidate")
     # print(I_k)
     
-    d_kj = get_dict_distances(I=instance_dict['nodes'], K=dist_pickuppoints, device=device)
+    d_kj = get_dict_distances_optimized(I=instance_dict['nodes'], K=dist_pickuppoints)
     nodes_list = get_coordinates(instance_dict['nodes'])
     return {
         'I': I,
@@ -127,7 +127,6 @@ def create_params(path, instance: int, device: str = "cpu") -> dict:
     }
 
 def executeInstance(
-                device: str,
                 path, 
                 instance: int, 
                 logger: logging, 
@@ -146,7 +145,9 @@ def executeInstance(
                 time_limit = None,
                 max_iter: int = 10
             ):
+    start_time = time.time()
     params = create_params(path, instance)
+    logger.info(f"Tiempo en crear parámetros {time.time()-start_time}")
     if algorithm == "GRASP":
         if hiperparam_search:
             run_grasp_hyperparam_search(params=params, instance=instance, result_dir=result_dir, logger=logger, problem=problem, num_runs=num_runs, type_search=type_search)
@@ -156,7 +157,7 @@ def executeInstance(
             run_grasp_once(params = params, instance=instance, alpha=alpha, frac_neighbors=frac_neighbors, result_dir=result_dir, problem=problem, max_iter=max_iter, logger=logger)
         
     elif algorithm == "MILP":
-        MILP(problem_type=problem, optimizer=optimizer, params = params, instance=instance, instance_problem="p1", result_dir=result_dir, time_limit=time_limit)
+        MILP(problem_type=problem, optimizer=optimizer, params = params, instance=instance, instance_problem="p1", result_dir=result_dir, time_limit=time_limit, logger=logger)
 
     elif algorithm == "TABU":
         if hiperparam_search:
@@ -178,7 +179,6 @@ def run_single_instance(args_tuple):
     i, global_timestamp, current_config = args_tuple
 
     # Extraer los parámetros de configuración comunes del 'current_config'
-    device = current_config.get('device', 'cpu')
     algorithm = current_config['algorithm']
     optimizer = current_config['optimization_solver']
     problem = current_config['problem']
@@ -228,7 +228,6 @@ def run_single_instance(args_tuple):
 
     try:
         executeInstance(
-            device=device,
             path=path,
             problem=problem,
             algorithm=algorithm,
@@ -277,7 +276,7 @@ if __name__ == "__main__":
             path = f"instances/p1/{instance_name}.txt"
             tasks.append((i, global_timestamp, CONFIG))
 
-        num_processes = 1 if CONFIG.get("device") == "cuda" else multiprocessing.cpu_count()
+        num_processes = multiprocessing.cpu_count()
         print(f"Iniciando la ejecución paralela en {num_processes} procesos...")
         print(f"Configuración global del algoritmo: {CONFIG['algorithm']}")
 
