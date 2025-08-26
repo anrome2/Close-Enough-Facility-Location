@@ -2,8 +2,6 @@ import logging
 import random
 import time
 import os
-
-import numpy as np
 from structure.solution import Solution
 
 class GRASPSearch:

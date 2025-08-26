@@ -1,8 +1,9 @@
+import json
 import os
 import time
 import pulp
 
-def milp_ceflp(params, instance, result_dir, problem_type="P1", optimizer="CBC", time_limit=None):
+def milp_ceflp(params, instance, instance_problem, result_dir, problem_type="P1", optimizer="CBC", time_limit=None, optimal_solution=False):
     """
     Resuelve el problema de localización de instalaciones Close-Enough (CEFLP)
     utilizando formulaciones de Programación Lineal Entera Mixta (MILP) con PuLP.
@@ -41,6 +42,10 @@ def milp_ceflp(params, instance, result_dir, problem_type="P1", optimizer="CBC",
 
     # Crear carpeta de output si no existe
     os.makedirs(result_dir, exist_ok=True)
+    if optimal_solution:
+        log_dir = os.path.join(result_dir, instance_problem)
+    else:
+        log_dir = result_dir
 
     # Crear modelo
     model = pulp.LpProblem(f"{problem_type}_CEFLP", pulp.LpMinimize)
@@ -144,12 +149,12 @@ def milp_ceflp(params, instance, result_dir, problem_type="P1", optimizer="CBC",
     # Resolver
     if optimizer == "CBC":
         log_path = f"i{instance+1}_cbc.log"
-        solver = pulp.PULP_CBC_CMD(msg=True, timeLimit=time_limit, logPath=os.path.join(result_dir, log_path))
+        solver = pulp.PULP_CBC_CMD(msg=True, timeLimit=time_limit, logPath=os.path.join(log_dir, log_path))
         model.solve(solver)
         end_time = time.time()
     elif optimizer == "GLPK":
         log_path = f"i{instance+1}_glpk.log"
-        options = ['--log', os.path.join(result_dir, log_path)]
+        options = ['--log', os.path.join(log_dir, log_path)]
         solver = pulp.GLPK_CMD(path="./winglpk-4.65/glpk-4.65/w64/glpsol.exe", 
                                msg=True, 
                                options=options,
@@ -162,69 +167,94 @@ def milp_ceflp(params, instance, result_dir, problem_type="P1", optimizer="CBC",
         solver = pulp.CPLEX_CMD(path="C:/Program Files/IBM/ILOG/CPLEX_Studio2212/cplex/bin/x64_win64/cplex.exe", 
                                 msg=True, 
                                 timeLimit=time_limit,
-                                logPath=os.path.join(result_dir, log_path)
+                                logPath=os.path.join(log_dir, log_path)
                                 )
         model.solve(solver)
         end_time = time.time()
     else:
         print(f"Optimizer {optimizer} not recognized. Using default CBC solver.")
         log_path = f"i{instance+1}_cbc.log"
-        solver = pulp.PULP_CBC_CMD(msg=True, timeLimit=time_limit, logPath=os.path.join(result_dir, log_path))
+        solver = pulp.PULP_CBC_CMD(msg=True, timeLimit=time_limit, logPath=os.path.join(log_dir, log_path))
         model.solve(solver)
         end_time = time.time()
 
     solve_time = end_time - start_time
 
-    # Guardar resultados
-    filename = f"i{instance+1}_{problem_type}_result.txt"
-    filepath = os.path.join(result_dir, filename)
+    if optimal_solution:
+        results_dict = {}
+        filename = f"{instance_problem}.json"
+        filepath = os.path.join(result_dir, filename)
+        # 1. Intentar cargar el diccionario existente
+        if os.path.exists(filepath):
+            try:
+                with open(filepath, 'r') as f:
+                    results_dict = json.load(f)
+            except json.JSONDecodeError:
+                print(f"Advertencia: El archivo {filepath} no es un JSON válido o está vacío. Se creará uno nuevo.")
+                results_dict = {}
+        if pulp.value(model.objective):
+            objective_value = str(round(pulp.value(model.objective), 2))
+        else:
+            objective_value = "Infeasible"
 
+        # 3. Guardar el valor objetivo en el diccionario
+        key = f"i{instance+1}" # Clave: i1, i2, etc.
+        results_dict[key] = objective_value
 
-    with open(filepath, "w") as f:
-        f.write(f"Instancia: {instance+1}\n")
-        f.write(f"Tipo de Problema: {problem_type}\n")
-        f.write(f"Estado: {pulp.LpStatus[model.status]}\n")
-        f.write(f"Valor Objetivo: {str(round(pulp.value(model.objective), 2))}\n")
-        f.write(f"Tiempo de Ejecución: {solve_time:.4f} segundos\n")
+        # 4. Guardar el diccionario actualizado en el archivo JSON
+        with open(filepath, 'w') as f:
+            json.dump(results_dict, f, indent=4) # 'indent=4' para formato legible
 
-        if problem_type == "P1" or problem_type == "P2": # Both P1 and P2 use y and nu
-            f.write("Instalaciones Abiertas (y):\n")
-            for j in J:
-                if pulp.value(y[j]) == 1:
-                    f.write(f"  Instalación {j}\n")
-            f.write("Puntos de Recogida Abiertos (nu):\n")
-            for k in K:
-                if pulp.value(nu[k]) == 1:
-                    f.write(f"  Punto {k}\n")
-            if problem_type == "P1":
-                f.write("Asignaciones Cliente-Instalación (x):\n")
-                for i in I:
-                    for j in J:
-                        if pulp.value(x[i][j]) == 1:
-                            f.write(f"  Cliente {i} a Instalación {j}\n")
-                f.write("Asignaciones Cliente-PuntoRecogida (z):\n")
-                for i in I:
-                    for k in K:
-                        if pulp.value(z[i][k]) == 1:
-                            f.write(f"  Cliente {i} a Punto {k}\n")
-                f.write("Flujos PuntoRecogida-Instalación (s):\n")
+        print(f"Instancia {instance+1} ({problem_type}) objetivo {objective_value} guardado en {filepath}")
+    else:
+        # Guardar resultados
+        filename = f"i{instance+1}_{problem_type}_result.txt"
+        filepath = os.path.join(result_dir, filename)
+        with open(filepath, "w") as f:
+            f.write(f"Instancia: {instance+1}\n")
+            f.write(f"Tipo de Problema: {problem_type}\n")
+            f.write(f"Estado: {pulp.LpStatus[model.status]}\n")
+            f.write(f"Valor Objetivo: {str(round(pulp.value(model.objective), 2))}\n")
+            f.write(f"Tiempo de Ejecución: {solve_time:.4f} segundos\n")
+
+            if problem_type == "P1" or problem_type == "P2": # Both P1 and P2 use y and nu
+                f.write("Instalaciones Abiertas (y):\n")
+                for j in J:
+                    if pulp.value(y[j]) == 1:
+                        f.write(f"  Instalación {j}\n")
+                f.write("Puntos de Recogida Abiertos (nu):\n")
                 for k in K:
-                    for j in J:
-                        if pulp.value(s[k][j]) > 0:
-                            f.write(f"  Flujo desde Punto {k} a Instalación {j}: {pulp.value(s[k][j])}\n")
-            elif problem_type == "P2":
-                f.write("Asignaciones Cliente-PuntoRecogida-Instalación (w):\n")
-                for i in I:
-                    for k_or_i in K_i[i] + [i]:
+                    if pulp.value(nu[k]) == 1:
+                        f.write(f"  Punto {k}\n")
+                if problem_type == "P1":
+                    f.write("Asignaciones Cliente-Instalación (x):\n")
+                    for i in I:
                         for j in J:
-                            if pulp.value(w[i][k_or_i][j]) == 1:
-                                if k_or_i == i:
-                                    f.write(f"  Cliente {i} (directo) a Instalación {j}\n")
-                                else:
-                                    f.write(f"  Cliente {i} a Punto {k_or_i} servido por Instalación {j}\n")
+                            if pulp.value(x[i][j]) == 1:
+                                f.write(f"  Cliente {i} a Instalación {j}\n")
+                    f.write("Asignaciones Cliente-PuntoRecogida (z):\n")
+                    for i in I:
+                        for k in K:
+                            if pulp.value(z[i][k]) == 1:
+                                f.write(f"  Cliente {i} a Punto {k}\n")
+                    f.write("Flujos PuntoRecogida-Instalación (s):\n")
+                    for k in K:
+                        for j in J:
+                            if pulp.value(s[k][j]) > 0:
+                                f.write(f"  Flujo desde Punto {k} a Instalación {j}: {pulp.value(s[k][j])}\n")
+                elif problem_type == "P2":
+                    f.write("Asignaciones Cliente-PuntoRecogida-Instalación (w):\n")
+                    for i in I:
+                        for k_or_i in K_i[i] + [i]:
+                            for j in J:
+                                if pulp.value(w[i][k_or_i][j]) == 1:
+                                    if k_or_i == i:
+                                        f.write(f"  Cliente {i} (directo) a Instalación {j}\n")
+                                    else:
+                                        f.write(f"  Cliente {i} a Punto {k_or_i} servido por Instalación {j}\n")
 
 
-    print(f"Instancia {instance+1} ({problem_type}) resuelta. Estado: {pulp.LpStatus[model.status]}")
+        print(f"Instancia {instance+1} ({problem_type}) resuelta. Estado: {pulp.LpStatus[model.status]}")
 
 
 

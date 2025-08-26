@@ -5,12 +5,16 @@ import random
 from collections import deque
 import time
 
-import numpy as np
-
 from structure.solution import Solution
     
 class TabuSearch:
-    def __init__(self, params, inicialization, instance, result_dir, logger: logging, problem: str = "P2", max_iter=None, tabu_tenure=0.25):
+    def __init__(self, params, inicialization, instance, result_dir, logger: logging, problem: str = "P2", max_iter=None, tabu_tenure=0.25, device:str="cpu"):
+        if device == "cuda":
+            import cupy as cp
+            self.xp = cp
+        else:
+            import numpy as np
+            self.xp = np
         self.I = params['I']
         self.J = params['J']
         self.K = params['K']
@@ -37,8 +41,8 @@ class TabuSearch:
         self.tabu_list_pickup = deque(maxlen=self.tabu_tenure_pickups)
 
         # Memoria a largo plazo
-        self.RC_install = np.zeros(self.n_customers, dtype=int)
-        self.RC_pickup = np.zeros(self.n_pickups, dtype=int)
+        self.RC_install = self.xp.zeros(self.n_customers, dtype=int)
+        self.RC_pickup = self.xp.zeros(self.n_pickups, dtype=int)
         self.AO_install = {j: [] for j in self.J}
         self.AO_pickup = {k: [] for k in self.K}
         

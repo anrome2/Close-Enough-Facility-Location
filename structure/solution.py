@@ -1,10 +1,19 @@
 import random
 import traceback
-import numpy as np
 from sklearn.cluster import KMeans
 
 class Solution:
-    def __init__(self, algorithm, other_solution=None):
+    def __init__(self, algorithm, other_solution=None, device: str="cpu"):
+        if device == "cuda":
+            import cupy as cp
+            from cuml.cluster import KMeans
+            self.kmeans = KMeans
+            self.xp = cp
+        else:
+            import numpy as np
+            from sklearn.cluster import KMeans
+            self.kmeans = KMeans
+            self.xp = np
         self.algorithm = algorithm
         self.problem = algorithm.problem
         self.cost = float('inf')
@@ -34,8 +43,8 @@ class Solution:
     
     def _initialize_empty(self):
         """Inicialización optimizada según el tipo de problema"""
-        self.y = np.zeros(self.algorithm.n_customers, dtype=int)
-        self.nu = np.zeros(self.algorithm.n_pickups, dtype=int)
+        self.y = self.xp.zeros(self.algorithm.n_customers, dtype=int)
+        self.nu = self.xp.zeros(self.algorithm.n_pickups, dtype=int)
         
         if self.problem == "P1":
             # Variables x_ij: 1 si cliente i es asignado directamente a facilidad j
@@ -231,17 +240,17 @@ class Solution:
         
         # Crear coordenadas basadas en posición geográfica real si está disponible
         if hasattr(self.algorithm, 'facility_coords') and self.algorithm.facility_coords is not None:
-            facility_coords = np.array([coords for coords in self.algorithm.facility_coords])
+            facility_coords = self.xp.array([coords for coords in self.algorithm.facility_coords])
         else:
             # Fallback: usar distancias promedio como proxy de ubicación
             facility_coords = []
             for j in self.algorithm.J:
                 # Calcular centroide de distancias a todos los clientes
                 distances = [self._get_distance_ij(i, j) for i in self.algorithm.I]
-                avg_dist = np.mean(distances)
-                std_dist = np.std(distances)
+                avg_dist = self.xp.mean(distances)
+                std_dist = self.xp.std(distances)
                 facility_coords.append([avg_dist, std_dist])
-            facility_coords = np.array(facility_coords)
+            facility_coords = self.xp.array(facility_coords)
         
         # Normalizar coordenadas para mejorar clustering
         from sklearn.preprocessing import StandardScaler
@@ -253,7 +262,7 @@ class Solution:
         best_facilities = None
         
         for attempt in range(5):  # Múltiples intentos con diferentes seeds
-            kmeans = KMeans(
+            kmeans = self.kmeans(
                 n_clusters=self.algorithm.p, 
                 random_state=42 + attempt,
                 n_init=20,  # Más inicializaciones para mejor convergencia
@@ -266,23 +275,23 @@ class Solution:
             selected_facilities = set()
             for cluster_id in range(self.algorithm.p):
                 cluster_mask = cluster_labels == cluster_id
-                if not np.any(cluster_mask):
+                if not self.xp.any(cluster_mask):
                     continue
                     
                 cluster_coords = facility_coords_norm[cluster_mask]
-                cluster_facilities = np.array(list(self.algorithm.J))[cluster_mask]
+                cluster_facilities = self.xp.array(list(self.algorithm.J))[cluster_mask]
                 
                 # Encontrar la instalación más cercana al centroide del cluster
-                distances_to_center = np.linalg.norm(
+                distances_to_center = self.xp.linalg.norm(
                     cluster_coords - centers[cluster_id], axis=1
                 )
-                closest_idx = np.argmin(distances_to_center)
+                closest_idx = self.xp.argmin(distances_to_center)
                 selected_facilities.add(cluster_facilities[closest_idx])
             
             # Evaluar calidad de la solución (suma de distancias promedio)
             if len(selected_facilities) == self.algorithm.p:
                 score = sum(
-                    np.mean([self._get_distance_ij(i, j) for i in self.algorithm.I])
+                    self.xp.mean([self._get_distance_ij(i, j) for i in self.algorithm.I])
                     for j in selected_facilities
                 )
                 if score < best_score:
@@ -297,7 +306,7 @@ class Solution:
             remaining = [j for j in self.algorithm.J if j not in selected_facilities]
             # Ordenar por distancia promedio a clientes
             remaining_scores = {
-                j: np.mean([self._get_distance_ij(i, j) for i in self.algorithm.I])
+                j: self.xp.mean([self._get_distance_ij(i, j) for i in self.algorithm.I])
                 for j in remaining
             }
             sorted_remaining = sorted(remaining_scores.items(), key=lambda x: x[1])
@@ -330,7 +339,7 @@ class Solution:
         
         # Crear coordenadas para puntos de recogida
         if hasattr(self.algorithm, 'pickup_coords') and self.algorithm.pickup_coords is not None:
-            pickup_coords = np.array([self.algorithm.pickup_coords[k] for k in self.algorithm.K])
+            pickup_coords = self.xp.array([self.algorithm.pickup_coords[k] for k in self.algorithm.K])
         else:
             # Fallback: usar distancias a instalaciones abiertas
             pickup_coords = []
@@ -342,16 +351,16 @@ class Solution:
                         distances.append(self.algorithm.d_kj[k][j])
                 
                 if distances:
-                    avg_dist = np.mean(distances)
-                    min_dist = np.min(distances)
+                    avg_dist = self.xp.mean(distances)
+                    min_dist = self.xp.min(distances)
                     pickup_coords.append([avg_dist, min_dist])
                 else:
                     pickup_coords.append([float('inf'), float('inf')])
             
-            pickup_coords = np.array(pickup_coords)
+            pickup_coords = self.xp.array(pickup_coords)
             # Filtrar puntos con distancias infinitas
-            valid_mask = ~np.isinf(pickup_coords).any(axis=1)
-            if not np.any(valid_mask):
+            valid_mask = ~self.xp.isinf(pickup_coords).any(axis=1)
+            if not self.xp.any(valid_mask):
                 # Si todos tienen distancias infinitas, usar inicialización greedy
                 self.algorithm.logger.warning("Todas las distancias son infinitas, usando inicialización greedy para pickups")
                 return
@@ -362,7 +371,7 @@ class Solution:
         pickup_coords_norm = scaler.fit_transform(pickup_coords)
         
         # Aplicar K-means
-        kmeans = KMeans(
+        kmeans = self.kmeans(
             n_clusters=min(self.algorithm.t, len(self.algorithm.K)),
             random_state=42,
             n_init=20,
@@ -375,16 +384,16 @@ class Solution:
         selected_pickups = set()
         for cluster_id in range(min(self.algorithm.t, len(self.algorithm.K))):
             cluster_mask = cluster_labels == cluster_id
-            if not np.any(cluster_mask):
+            if not self.xp.any(cluster_mask):
                 continue
                 
             cluster_coords = pickup_coords_norm[cluster_mask]
-            cluster_pickups = np.array(list(self.algorithm.K))[cluster_mask]
+            cluster_pickups = self.xp.array(list(self.algorithm.K))[cluster_mask]
             
-            distances_to_center = np.linalg.norm(
+            distances_to_center = self.xp.linalg.norm(
                 cluster_coords - centers[cluster_id], axis=1
             )
-            closest_idx = np.argmin(distances_to_center)
+            closest_idx = self.xp.argmin(distances_to_center)
             selected_pickups.add(cluster_pickups[closest_idx])
         
         # Completar si faltan puntos de recogida
@@ -398,7 +407,7 @@ class Solution:
                     if (k in self.algorithm.d_kj and j in self.algorithm.d_kj[k] and 
                         self.algorithm.d_kj[k][j] != float('inf')):
                         distances.append(self.algorithm.d_kj[k][j])
-                remaining_scores[k] = np.mean(distances) if distances else float('inf')
+                remaining_scores[k] = self.xp.mean(distances) if distances else float('inf')
             
             sorted_remaining = sorted(remaining_scores.items(), key=lambda x: x[1])
             needed = self.algorithm.t - len(selected_pickups)

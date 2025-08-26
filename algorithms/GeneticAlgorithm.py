@@ -1,7 +1,6 @@
 import os
 import time
 import traceback
-import numpy as np
 import random
 from typing import List, Tuple
 
@@ -27,7 +26,14 @@ class GeneticSearch:
                  mutation_rate: float = 0.05,
                  crossover_rate: float = 0.95,
                  problem: str = "P2", 
+                 device: str = "cpu"
                 ):
+        if device == "cuda":
+            import cupy as cp
+            self.xp = cp
+        else:
+            import numpy as np
+            self.xp = np
         self.I = params['I']
         self.J = params['J']
         self.n_customers = len(self.I)
@@ -82,7 +88,7 @@ class GeneticSearch:
                 raise
             
             # Actualizar mejor solución
-            gen_best_idx = np.argmin(fitnesses)
+            gen_best_idx = self.xp.argmin(fitnesses)
             gen_best_fitness = fitnesses[gen_best_idx]
             
             if gen_best_fitness < best_fitness:
@@ -153,7 +159,7 @@ class GeneticSearch:
     
     def _replace_worst(self, fitnesses, children, children_costs):
         """Reemplaza los peores individuos de la población"""
-        sorted_indices = np.argsort(fitnesses)[::-1]  # De peor a mejor
+        sorted_indices = self.xp.argsort(fitnesses)[::-1]  # De peor a mejor
         
         # Obtener costos de todos los candidatos a reemplazo
         all_costs = [fitnesses[sorted_indices[0]], fitnesses[sorted_indices[1]]] + children_costs
@@ -200,7 +206,7 @@ class GeneticSearch:
         new_ind._clone_solution(winner[0])
         return new_ind
     
-    def _crossover(self, parent1: np.ndarray, parent2: np.ndarray, n_candidates: int, n_open: int) -> Tuple[np.ndarray, np.ndarray]:
+    def _crossover(self, parent1, parent2, n_candidates: int, n_open: int):
         """Cruzamiento de un punto"""
         if random.random() > self.crossover_rate:
             return parent1.copy(), parent2.copy()
@@ -221,7 +227,7 @@ class GeneticSearch:
         
         return child1, child2
     
-    def _mutate(self, individual: np.ndarray, n_open: int) -> np.ndarray:
+    def _mutate(self, individual, n_open: int):
         """Mutación bit-flip con reparación"""
         mutated = individual.copy()
         
@@ -231,10 +237,10 @@ class GeneticSearch:
         
         return self._repair_individual(mutated, n_open)
     
-    def _repair_individual(self, individual: np.ndarray, n_open: int) -> np.ndarray:
+    def _repair_individual(self, individual, n_open: int):
         """Repara un individuo para que respete la restricción de tener exactamente n_open elementos abiertos."""
-        open_positions = np.where(individual == 1)[0]
-        closed_positions = np.where(individual == 0)[0]
+        open_positions = self.xp.where(individual == 1)[0]
+        closed_positions = self.xp.where(individual == 0)[0]
         num_open = len(open_positions)
         
         if num_open > n_open:

@@ -1,8 +1,15 @@
+
 import math
 import os
+import cupy as cp
+import numpy as np
+from numba import cuda, jit
+import itertools
+
+from structure.pickuppoints import clear_gpu_memory
 
 # Listas de cantidad de nodos
-NODOS_50 = [[10, 2, 3], [20, 2, 10], [30, 3, 10], [35, 3, 10], [40, 4, 10],  [50, 4, 10]]
+NODOS_50 = [[10, 2, 3], [20, 2, 10], [30, 3, 10], [35, 3, 10], [40, 4, 10], [50, 4, 10]]
 NODOS_100 = [[55, 4, 10], [60, 4, 10], [65, 4, 10], [70, 4, 10], [75, 4, 10], [80, 4, 10], [85, 4, 10], [90, 4, 10], [100, 4, 10]]
 
 def read_file(path):
@@ -98,4 +105,6 @@ if __name__ == "__main__":
     for i in range(1, 11):
         create_instances(i, 50)
         create_instances(i, 100)
+        # Limpiar memoria GPU después de cada instancia
+        clear_gpu_memory()
 
