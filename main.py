@@ -9,7 +9,7 @@ from algorithms.MILP import milp_ceflp as MILP
 
 from structure.create_instances import map_R
 from structure.instances import readInstance
-from structure.pickuppoints import get_dict_distances_optimized, get_dict_pickuppoints_optimized, get_max_from_nested_dict, get_pickuppoints_optimized
+from structure.pickup import get_dict_distances, get_dict_pickuppoints, get_pickuppoints, get_max_from_nested_dict
 
 # C:\Users\Andrea\Documents\TFM\.venv\Scripts\Activate.ps1
 
@@ -97,17 +97,17 @@ def create_params(path, instance: int) -> dict:
     d_ij = instance_dict['d']
     dist_max = get_max_from_nested_dict(d_ij)
     R = round(dist_max*map_R(instance+1), 3)
-    dist_pickuppoints = get_pickuppoints_optimized(R=R, nodes=instance_dict['nodes'])
+    dist_pickuppoints = get_pickuppoints(R=R, nodes=instance_dict['nodes'])
     pickuppoints = [(round(float(x), 3), round(float(y), 3)) for x, y in dist_pickuppoints]
 
     # Para evitar problemas luego en la formulación 3-indices K no empezará en uno, sino en |I|
     K = [k+n+1 for k in range(len(pickuppoints))]
     # print(K)
-    K_i = get_dict_pickuppoints_optimized(customers_dict=instance_dict['nodes'], pickups_list=pickuppoints, R=R, type="customer")
-    I_k = get_dict_pickuppoints_optimized(customers_dict=instance_dict['nodes'], pickups_list=pickuppoints, R=R, type="candidate")
+    K_i = get_dict_pickuppoints(customers_dict=instance_dict['nodes'], pickups_list=pickuppoints, R=R, type="customer")
+    I_k = get_dict_pickuppoints(customers_dict=instance_dict['nodes'], pickups_list=pickuppoints, R=R, type="candidate")
     # print(I_k)
     
-    d_kj = get_dict_distances_optimized(I=instance_dict['nodes'], K=dist_pickuppoints)
+    d_kj = get_dict_distances(I=instance_dict['nodes'], K=dist_pickuppoints)
     nodes_list = get_coordinates(instance_dict['nodes'])
     return {
         'I': I,
