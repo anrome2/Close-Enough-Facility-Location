@@ -12,11 +12,12 @@ from structure.instances import readInstance
 from structure.pickup import get_dict_distances, get_dict_pickuppoints, get_pickuppoints, get_max_from_nested_dict
 
 # C:\Users\Andrea\Documents\TFM\.venv\Scripts\Activate.ps1
+# source venv_ceflp/bin/activate
 
 CONFIG = {
     'save_results': True,
     'problem': 'P2', # Puede ser 'P1' o 'P2'
-    'algorithm': 'MILP',  # Puede ser 'GRASP' o 'MILP' o 'TABU' o 'GENETIC'
+    'algorithm': 'TABU',  # Puede ser 'GRASP' o 'MILP' o 'TABU' o 'GENETIC'
     'optimization_solver': 'CPLEX',  # Puede ser 'CBC', 'GLPK' o 'CPLEX'
     'inicialization': 'random',  # Puede ser 'random', 'kmeans' o 'greedy'
     'comitee': False,  # Si se usa comité GRASP
@@ -25,7 +26,7 @@ CONFIG = {
     'alpha': 0.65,  # Parámetro de aleatoriedad para GREEDY
     'frac_neighbors': 3,  # Fracción a dividir el total de clientes para obtener el número de vecinos a generar por iteración
     'tabu_tenure': 0.35,  # Tenencia para el algoritmo Tabu
-    'time_limit': 7200,  # Límite de tiempo en segundos para la resolución del MILP
+    'time_limit': 300,  # Límite de tiempo en segundos para la resolución del MILP
     'max_iter': None,  # Máximo número de iteraciones para el algoritmo Tabu
 }
 
@@ -161,11 +162,11 @@ def executeInstance(
 
     elif algorithm == "TABU":
         if hiperparam_search:
-            run_tabu_hyperparam_search(params=params, instance=instance, result_dir=result_dir, problem=problem, logger=logger, max_iter=max_iter, num_runs=num_runs, type_search=type_search)
+            run_tabu_hyperparam_search(params=params, instance=instance, result_dir=result_dir, problem=problem, logger=logger, time_limit=time_limit, num_runs=num_runs, type_search=type_search)
         elif comitee:
-            run_tabu_committee(params=params, instance=instance, tabu_tenure=tabu_tenure, result_dir=result_dir,  problem=problem,logger=logger, inicialization=inicialization, max_iter=max_iter, num_runs=num_runs)
+            run_tabu_committee(params=params, instance=instance, tabu_tenure=tabu_tenure, result_dir=result_dir,  problem=problem,logger=logger, inicialization=inicialization, time_limit=time_limit, num_runs=num_runs)
         else:
-            run_tabu_once(params=params, instance=instance, tabu_tenure=tabu_tenure, result_dir=result_dir,  problem=problem,logger=logger, inicialization=inicialization, max_iter=max_iter)
+            run_tabu_once(params=params, instance=instance, tabu_tenure=tabu_tenure, result_dir=result_dir,  problem=problem,logger=logger, inicialization=inicialization, time_limit=time_limit)
 
     elif algorithm == "GENETIC":
         if comitee:

@@ -121,7 +121,7 @@ def run_single_genetic_execution(args):
 
 def run_single_tabu_execution(args):
     """Ejecuta una sola ejecución de TABU - función para paralelización plana"""
-    params, instance, base_result_dir, problem, inicialization, tabu_tenure, max_iter, run_idx, combination_name = args
+    params, instance, base_result_dir, problem, inicialization, tabu_tenure, time_limit, run_idx, combination_name = args
     
     worker_logger = setup_worker_logger()
     
@@ -142,7 +142,7 @@ def run_single_tabu_execution(args):
         problem=problem, 
         result_dir=result_dir, 
         tabu_tenure=tabu_tenure, 
-        max_iter=max_iter, 
+        time_limit=time_limit, 
         logger=worker_logger
     )
     tabu.run()
@@ -201,7 +201,7 @@ def run_grasp_committee_parallel(params, instance, result_dir, logger, alpha=0.3
     
     return best_solution
 
-def run_tabu_committee_parallel(params, instance, result_dir, logger, inicialization="random", max_iter=50, num_runs=5, tabu_tenure=0.25, problem="P2", num_processes=None):
+def run_tabu_committee_parallel(params, instance, result_dir, logger, inicialization="random", time_limit=100, num_runs=5, tabu_tenure=0.25, problem="P2", num_processes=None):
     """Versión paralelizada del comité TABU usando paralelización plana"""
     if num_processes is None:
         num_processes = min(cpu_count(), num_runs)
@@ -212,7 +212,7 @@ def run_tabu_committee_parallel(params, instance, result_dir, logger, inicializa
     
     # Preparar argumentos para cada ejecución
     args_list = [
-        (params, instance, result_dir, problem, inicialization, tabu_tenure, max_iter, idx, None)
+        (params, instance, result_dir, problem, inicialization, tabu_tenure, time_limit, idx, None)
         for idx in range(num_runs)
     ]
     
@@ -376,7 +376,7 @@ def run_grasp_hyperparam_grid_search(params, instance, result_dir, logger, probl
     
     return df
 
-def run_tabu_hyperparam_grid_search(params, instance, result_dir, logger, problem="P2", num_runs=8, max_iter=None, num_processes=None):
+def run_tabu_hyperparam_grid_search(params, instance, result_dir, logger, problem="P2", num_runs=8, time_limit=100, num_processes=None):
     """Búsqueda de hiperparámetros TABU con paralelización plana completa"""
     num_clientes = len(params['I'])
     tabu_tenure_list = [int(0.15 * num_clientes), int(0.25 * num_clientes), int(0.5 * num_clientes), int(sqrt(num_clientes))]
@@ -402,7 +402,7 @@ def run_tabu_hyperparam_grid_search(params, instance, result_dir, logger, proble
         for run_idx in range(num_runs):
             all_args.append((
                 params, instance, result_dir, problem, inicializacion, 
-                tabu_tenure, max_iter, run_idx, combination_name
+                tabu_tenure, time_limit, run_idx, combination_name
             ))
     
     # Ejecutar TODAS las ejecuciones en paralelo
@@ -555,7 +555,7 @@ def run_grasp_hyperparam_random_search(params, instance, result_dir, logger, pro
     
     return df
 
-def run_tabu_hyperparam_random_search(params, instance, result_dir, logger, problem="P2", num_runs=8, max_iter=None, num_processes=None, num_random_combinations=10):
+def run_tabu_hyperparam_random_search(params, instance, result_dir, logger, problem="P2", num_runs=8, time_limit=100, num_processes=None, num_random_combinations=10):
     """Búsqueda de hiperparámetros TABU con paralelización plana completa"""
     combinations = set()
     num_clientes = len(params['I'])
@@ -593,7 +593,7 @@ def run_tabu_hyperparam_random_search(params, instance, result_dir, logger, prob
         for run_idx in range(num_runs):
             all_args.append((
                 params, instance, result_dir, problem, inicializacion, 
-                tabu_tenure, max_iter, run_idx, combination_name
+                tabu_tenure, time_limit, run_idx, combination_name
             ))
     
     # Ejecutar TODAS las ejecuciones en paralelo
@@ -798,7 +798,7 @@ def run_grasp_hyperparam_bayesian_search(params, instance, result_dir, logger, p
     
     return df
 
-def evaluate_tabu_hyperparams(tabu_tenure, inicializacion, params, instance, result_dir, logger, problem, num_runs, max_iter, num_processes):
+def evaluate_tabu_hyperparams(tabu_tenure, inicializacion, params, instance, result_dir, logger, problem, num_runs, time_limit, num_processes):
     """Función objetivo para evaluación bayesiana de hiperparámetros TABU"""
     # Convertir tabu_tenure de float a int (requerido por scikit-optimize)
     tabu_tenure = int(round(tabu_tenure))
@@ -814,7 +814,7 @@ def evaluate_tabu_hyperparams(tabu_tenure, inicializacion, params, instance, res
     for run_idx in range(num_runs):
         all_args.append((
             params, instance, combo_dir, problem, inicializacion, 
-            tabu_tenure, max_iter, run_idx, combination_name
+            tabu_tenure, time_limit, run_idx, combination_name
         ))
     
     # Ejecutar comité en paralelo
@@ -840,13 +840,13 @@ def evaluate_tabu_hyperparams(tabu_tenure, inicializacion, params, instance, res
     
     return best_cost
 
-def run_tabu_hyperparam_bayesian_search(params, instance, result_dir, logger, problem="P2", num_runs=8, max_iter=None, 
+def run_tabu_hyperparam_bayesian_search(params, instance, result_dir, logger, problem="P2", num_runs=8, time_limit=100, 
                             num_processes=None, n_calls=25, n_initial_points=8, random_state=42):
     """Búsqueda bayesiana de hiperparámetros para TABU"""
     
     if not BAYESIAN_AVAILABLE:
         logger.error("scikit-optimize no está disponible. Ejecutando búsqueda en grilla como fallback.")
-        return run_tabu_hyperparam_search(params, instance, result_dir, logger, problem, num_runs, max_iter, num_processes)
+        return run_tabu_hyperparam_search(params, instance, result_dir, logger, problem, num_runs, time_limit, num_processes)
     
     if num_processes is None:
         num_processes = min(cpu_count(), num_runs)
@@ -879,7 +879,7 @@ def run_tabu_hyperparam_bayesian_search(params, instance, result_dir, logger, pr
             logger=logger,
             problem=problem,
             num_runs=num_runs,
-            max_iter=max_iter,
+            time_limit=time_limit,
             num_processes=num_processes
         )
     
@@ -968,22 +968,22 @@ def run_grasp_hyperparam_search(params, instance, result_dir, logger, problem="P
     elif type_search=="bayesian":
         return run_grasp_hyperparam_bayesian_search(params, instance, result_dir, logger, problem, num_runs, max_iter)
 
-def run_tabu_once(params, instance, result_dir, problem, logger, inicialization, tabu_tenure, max_iter):
-    tabu = TabuSearch(params=params, inicialization=inicialization, instance=instance, problem=problem, result_dir=result_dir, tabu_tenure=tabu_tenure, max_iter=max_iter, logger=logger)
+def run_tabu_once(params, instance, result_dir, problem, logger, inicialization, tabu_tenure, time_limit):
+    tabu = TabuSearch(params=params, inicialization=inicialization, instance=instance, problem=problem, result_dir=result_dir, tabu_tenure=tabu_tenure, time_limit=time_limit, logger=logger)
     tabu.run()
     return deepcopy(tabu.best_solution)
 
-def run_tabu_committee(params, instance, result_dir, logger, inicialization="random", max_iter=50, num_runs=5, tabu_tenure=0.25, problem="P2"):
+def run_tabu_committee(params, instance, result_dir, logger, inicialization="random", time_limit=100, num_runs=5, tabu_tenure=0.25, problem="P2"):
     # Redirigir a la versión paralela
-    return run_tabu_committee_parallel(params, instance, result_dir, logger, inicialization, max_iter, num_runs, tabu_tenure, problem)
+    return run_tabu_committee_parallel(params, instance, result_dir, logger, inicialization, time_limit, num_runs, tabu_tenure, problem)
 
-def run_tabu_hyperparam_search(params, instance, result_dir, logger, problem="P2", num_runs=8, max_iter=None, type_search="grid"):
+def run_tabu_hyperparam_search(params, instance, result_dir, logger, problem="P2", num_runs=8, time_limit=100, type_search="grid"):
     if type_search=="grid":
-        return run_tabu_hyperparam_grid_search(params=params, instance=instance, result_dir=result_dir, logger=logger, problem=problem, num_runs=num_runs, max_iter=max_iter)
+        return run_tabu_hyperparam_grid_search(params=params, instance=instance, result_dir=result_dir, logger=logger, problem=problem, num_runs=num_runs, time_limit=time_limit)
     elif type_search=="random":
-        return run_tabu_hyperparam_random_search(params=params, instance=instance, result_dir=result_dir, logger=logger, problem=problem, num_runs=num_runs, max_iter=max_iter)
+        return run_tabu_hyperparam_random_search(params=params, instance=instance, result_dir=result_dir, logger=logger, problem=problem, num_runs=num_runs, time_limit=time_limit)
     elif type_search=="bayesian":
-        return run_tabu_hyperparam_bayesian_search(params=params, instance=instance, result_dir=result_dir, logger=logger, problem=problem, num_runs=num_runs, max_iter=max_iter)
+        return run_tabu_hyperparam_bayesian_search(params=params, instance=instance, result_dir=result_dir, logger=logger, problem=problem, num_runs=num_runs, time_limit=time_limit)
 
 def run_genetic_committee(params, instance, result_dir, problem, inicializacion, logger, generations: int = 50, mutation_rate: float = 0.05, crossover_rate: float = 0.95, tournament: int = 5):
     # Redirigir a la versión paralela

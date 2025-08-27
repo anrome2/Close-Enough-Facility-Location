@@ -9,7 +9,7 @@ import numpy as np
 from structure.solution import Solution
     
 class TabuSearch:
-    def __init__(self, params, inicialization, instance, result_dir, logger: logging, problem: str = "P2", max_iter=None, tabu_tenure=0.25):
+    def __init__(self, params, inicialization, instance, result_dir, logger: logging, problem: str = "P2", time_limit=100, tabu_tenure=0.25):
 
         self.I = params['I']
         self.J = params['J']
@@ -24,20 +24,21 @@ class TabuSearch:
         self.n_customers = len(self.I)
 
         # Parámetros de configuración
-        self.max_iter = max_iter if max_iter else max(100, 2*len(self.I))
-        self.max_iter_without_improvement = 10 if len(self.I) < 30 else 15
+        self.time_limit = time_limit 
+        self.max_iter_without_improvement = 10 if len(self.I) < 30 else 3
 
         # Tabu tenure dinámico basado en el tamaño del problema
         base_tenure = max(5, int(tabu_tenure * len(self.I)))
         self.tabu_tenure_facilities = base_tenure
-        self.tabu_tenure_pickups = max(3, int(base_tenure * 0.7)) 
+        self.tabu_tenure_pickups = max(5, int(base_tenure * 1.25))
+
 
         # Listas tabu con tenure diferenciado
         self.tabu_list_facilities = deque(maxlen=self.tabu_tenure_facilities)
         self.tabu_list_pickup = deque(maxlen=self.tabu_tenure_pickups)
 
         # Memoria a largo plazo
-        self.RC_install = np.zeros(self.n_customers, dtype=int)
+        self.RC_install = np.zeros(self.n_customers, dtype=int)  # OPTIMIZACIÓN: int32 es más rápido
         self.RC_pickup = np.zeros(self.n_pickups, dtype=int)
         self.AO_install = {j: [] for j in self.J}
         self.AO_pickup = {k: [] for k in self.K}
@@ -57,6 +58,7 @@ class TabuSearch:
 
     def run(self):
         start_time = time.time()
+        iteration = 0
         
         # Inicialización
         self.current_solution = Solution(self)
@@ -68,11 +70,14 @@ class TabuSearch:
         self.logger.info(f"Iniciando Tabu Search - Solución inicial: {self.current_solution.cost}")
 
         # --- Bucle principal de búsqueda ---
-        for iteration in range(1, self.max_iter+1):
-            self.logger.info(f"Iteración {iteration}/{self.max_iter}, Costo actual: {self.current_solution.cost}, Mejor costo: {self.best_solution.cost}")
+        while (time.time() - start_time) < self.time_limit:
+            iteration += 1
+            self.logger.debug(f"Iteración {iteration}, Costo actual: {self.current_solution.cost}, Mejor costo: {self.best_solution.cost}")
 
             # Fase de corto plazo (intensificación)
+            short_term = time.time()
             self._short_term_phase()
+            self.logger.debug(f"Tiempo short phase {time.time()-short_term}")
 
             # Actualizar mejor solución
             if self.current_solution.cost < self.best_solution.cost:
@@ -83,16 +88,20 @@ class TabuSearch:
                 stagnation_counter += 1
 
             # Actualizar memoria a largo plazo
+            long_therm = time.time()
             self._long_term_memory()
+            self.logger.debug(f"Tiempo memoria long therm {time.time()-long_therm}")
             
             # Diversificación si hay estancamiento
             if stagnation_counter >= self.max_iter_without_improvement:
                 self.logger.info(f"Estancamiento detectado, aplicando diversificación")
+                long_therm = time.time()
                 self._long_term_phase()
+                self.logger.debug(f"Tiempo fase long therm {time.time()-long_therm}")
                 stagnation_counter = 0
 
         solve_time = time.time() - start_time
-
+        self.max_iter = iteration
         if self.best_solution is None:
             self.logger.warning("No se encontró solución válida")
             return None
@@ -315,7 +324,11 @@ class TabuSearch:
             
             # Calcular función greedy g'(j) según el paper
             for j in self.J:
+                facility_impact = time.time()
                 base_score = self._compute_facility_impact(j)
+                self.logger.debug(f"Facility impact {base_score}")
+                if base_score == float('inf'):
+                    continue
                 frequency_penalty = self.gamma_f * (self.RC_install[j-1] / max_f_install)
                 quality_bonus = self.gamma_q * ((max_q - avg_objectives[j-1]) / diff_q)
                 
@@ -323,8 +336,8 @@ class TabuSearch:
                 g_facilities.append((j, g_j))
             
             # Seleccionar mejores instalaciones
-            g_facilities.sort(key=lambda x: x[1], reverse=True)
-            best_facilities = [fac[0] for fac in g_facilities[:self.p]]
+            g_facilities.sort(key=lambda x: x[1])
+            # best_facilities = [fac[0] for fac in g_facilities[:self.p]]
             
             # Repetir proceso para puntos de recogida
             g_pickups = []
@@ -341,17 +354,20 @@ class TabuSearch:
             
             for idx_k, k in enumerate(self.K):
                 base_score = self._compute_pickup_impact(k, idx_k)
+                self.logger.debug(f"Pickup impact {base_score}")
+                if base_score == float('inf'):
+                    continue
                 frequency_penalty = self.gamma_f * (self.RC_pickup[idx_k] / max_f_pickup)
                 quality_bonus = self.gamma_q * ((max_q_pickup - avg_objectives_pickup[idx_k]) / diff_q_pickup)
                 
                 g_k = base_score - frequency_penalty + quality_bonus
                 g_pickups.append((k, g_k))
-            
-            g_pickups.sort(key=lambda x: x[1], reverse=True)
-            best_pickups = [pick[0] for pick in g_pickups[:self.t]]
-            
+            g_pickups.sort(key=lambda x: x[1])
+            # best_pickups = [pick[0] for pick in g_pickups[:self.t]]
             # Aplicar nueva configuración
-            self._apply_diversification(best_facilities, best_pickups)
+            diversitication = time.time()
+            self._apply_diversification(g_facilities, g_pickups)
+            self.logger.debug(f"Tiempo diversificación {time.time()-diversitication}")
             
         except Exception as e:
             self.logger.error(f"Error en diversificación: {e}")
@@ -362,12 +378,14 @@ class TabuSearch:
         """Calcula el impacto de abrir/mantener la instalación j"""
         temp_solution = Solution(self, other_solution=self.current_solution)
         cost_before = temp_solution.cost
-        
         # Si está cerrada, calcular impacto de abrirla
         if j not in self.current_solution.open_facilities:
-            temp_solution.y[j-1] = 1
+            facilities = self.current_solution.open_facilities.copy()
+            facilities.append(j)
+        else:
+            return float('inf')
         
-        cost_after = temp_solution.evaluate()
+        cost_after = temp_solution._evaluate_partial_solution_cost(facilities=facilities, pickups=self.current_solution.open_pickups)
         return cost_before - cost_after  # Retorna la mejora (positivo = bueno)
     
     def _compute_pickup_impact(self, k, idx):
@@ -377,23 +395,43 @@ class TabuSearch:
         
         # Si está cerrado, calcular impacto de abrirlo
         if k not in self.current_solution.open_pickups:
-            temp_solution.nu[idx] = 1
+            pickups = temp_solution.open_pickups.copy()
+            pickups.append(k)
+        else:
+            return float('inf')
         
-        cost_after = temp_solution.evaluate()
+        cost_after = temp_solution._evaluate_partial_solution_cost(facilities=self.current_solution.open_facilities, pickups=pickups)
         return cost_before - cost_after
-    
-    def _apply_diversification(self, best_facilities, best_pickups):
+    def _apply_diversification(self, facilities, pickups):
         """Aplica la nueva configuración de diversificación"""
+        max_fac = max(int(len(facilities)*0.6), self.p)
+        max_pick = max(int(len(pickups)*0.6), self.t)
+        
+        facilities_candidates = facilities[:max_fac]
+        pickups_candidates = pickups[:max_pick]
+
+        min_score = min(item[1] for item in facilities_candidates)
+        weights = [item[1]-min_score+0.1 for item in facilities_candidates if item[1] != float('inf')]
+
+        selected_idx = random.choices(range(len(facilities_candidates)), weights=weights, k=self.p)
+        best_facilities = [facilities_candidates[i][0] for i in selected_idx]
+
+        min_score = min(item[1] for item in pickups_candidates)
+        weights = [item[1] - min_score + 0.1 for item in pickups_candidates if item[1] != float('inf')]
+
+        selected_idx = random.choices(range(len(pickups_candidates)), weights=weights, k=self.t)
+        best_pickups = [pickups_candidates[i][0] for i in selected_idx]
+
         # Determinar cambios necesarios
         facilities_to_close = [j for j in self.current_solution.open_facilities 
                              if j not in best_facilities]
-        facilities_to_open = [j for j in best_facilities 
-                            if j not in self.current_solution.open_facilities]
+        # facilities_to_open = [j for j in best_facilities 
+        #                     if j not in self.current_solution.open_facilities]
         
         pickups_to_close = [k for k in self.current_solution.open_pickups 
                           if k not in best_pickups]
-        pickups_to_open = [k for k in best_pickups 
-                         if k not in self.current_solution.open_pickups]
+        # pickups_to_open = [k for k in best_pickups 
+        #                  if k not in self.current_solution.open_pickups]
         
         # Reinicializar solución
         self.current_solution._initialize_empty()
@@ -401,6 +439,7 @@ class TabuSearch:
         # Activar mejores instalaciones
         for j in best_facilities:
             self.current_solution.y[j-1] = 1
+            self.logger.debug(f"Current y {self.current_solution.y} siendo p {self.p}")
         
         # Activar mejores puntos de recogida
         for k in best_pickups:
@@ -417,6 +456,44 @@ class TabuSearch:
         self.current_solution.evaluate()
         
         self.logger.info(f"Diversificación aplicada. Nuevo costo: {self.current_solution.cost}")
+
+    
+    # def _apply_diversification(self, best_facilities, best_pickups):
+    #     """Aplica la nueva configuración de diversificación"""
+    #     # Determinar cambios necesarios
+    #     facilities_to_close = [j for j in self.current_solution.open_facilities 
+    #                          if j not in best_facilities]
+    #     # facilities_to_open = [j for j in best_facilities 
+    #     #                     if j not in self.current_solution.open_facilities]
+        
+    #     pickups_to_close = [k for k in self.current_solution.open_pickups 
+    #                       if k not in best_pickups]
+    #     # pickups_to_open = [k for k in best_pickups 
+    #     #                  if k not in self.current_solution.open_pickups]
+        
+    #     # Reinicializar solución
+    #     self.current_solution._initialize_empty()
+        
+    #     # Activar mejores instalaciones
+    #     for j in best_facilities:
+    #         self.current_solution.y[j-1] = 1
+    #         self.logger.debug(f"Current y {self.current_solution.y} siendo p {self.p}")
+        
+    #     # Activar mejores puntos de recogida
+    #     for k in best_pickups:
+    #         idx = self.K.index(k)
+    #         self.current_solution.nu[idx] = 1
+        
+    #     # Añadir elementos cerrados a la lista tabú
+    #     for j in facilities_to_close:
+    #         self._add_tabu(j, "facility")
+    #     for k in pickups_to_close:
+    #         self._add_tabu(k, "pickup")
+        
+    #     # Evaluar nueva solución
+    #     self.current_solution.evaluate()
+        
+    #     self.logger.info(f"Diversificación aplicada. Nuevo costo: {self.current_solution.cost}")
 
     def _random_perturbation(self):
         """Perturbación aleatoria como fallback"""
@@ -495,6 +572,7 @@ class TabuSearch:
                 
         except Exception as e:
             self.logger.error(f"Error al guardar solución: {e}")
+            
 
 # Ejemplo uso (debes adaptar los parámetros a tu instancia)
 # params = {
