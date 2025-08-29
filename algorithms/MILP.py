@@ -326,7 +326,7 @@ def create_optimized_model_p2(I, J, K, K_i, I_k, h, d_ij, d_kj, p, t, valid_comb
     return model, {'w': w, 'y': y, 'nu': nu}
 
 
-def milp_ceflp(params, instance, instance_problem, result_dir, logger, problem_type="P1", 
+def milp_ceflp(params, instance, n_nodos, result_dir, logger, problem_type="P1", 
                optimizer="CBC", time_limit=None, optimal_solution=False, 
                use_preprocessing=False, distance_threshold=None, gap_rel=0.01):
     """
@@ -353,7 +353,7 @@ def milp_ceflp(params, instance, instance_problem, result_dir, logger, problem_t
     os.makedirs(result_dir, exist_ok=True)
     
     if optimal_solution:
-        log_dir = os.path.join(result_dir, instance_problem)
+        log_dir = os.path.join(result_dir, n_nodos)
     else:
         log_dir = result_dir
     
@@ -361,12 +361,12 @@ def milp_ceflp(params, instance, instance_problem, result_dir, logger, problem_t
     preprocessing_start = time.time()
     
     if use_preprocessing:
-        logger.info("Iniciando preprocesamiento...")
+        logger.debug("Iniciando preprocesamiento...")
         
         # Preprocesar matrices de distancia
         d_ij_processed, d_kj_processed, preprocessing_info = preprocess_distance_matrices(d_ij, d_kj)
-        logger.info(f"Dispersión d_ij: {preprocessing_info['d_ij_sparsity']:.2%}")
-        logger.info(f"Dispersión d_kj: {preprocessing_info['d_kj_sparsity']:.2%}")
+        logger.debug(f"Dispersión d_ij: {preprocessing_info['d_ij_sparsity']:.2%}")
+        logger.debug(f"Dispersión d_kj: {preprocessing_info['d_kj_sparsity']:.2%}")
         
         # Filtrar combinaciones válidas
         valid_combinations = filter_valid_combinations(
@@ -374,12 +374,12 @@ def milp_ceflp(params, instance, instance_problem, result_dir, logger, problem_t
             distance_threshold=distance_threshold
         )
         
-        logger.info(f"Combinaciones válidas:")
-        logger.info(f"  x_indices: {len(valid_combinations['x_indices'])}")
-        logger.info(f"  z_indices: {len(valid_combinations['z_indices'])}")
-        logger.info(f"  s_indices: {len(valid_combinations['s_indices'])}")
+        logger.debug(f"Combinaciones válidas:")
+        logger.debug(f"  x_indices: {len(valid_combinations['x_indices'])}")
+        logger.debug(f"  z_indices: {len(valid_combinations['z_indices'])}")
+        logger.debug(f"  s_indices: {len(valid_combinations['s_indices'])}")
         if problem_type == "P2":
-            logger.info(f"  w_indices: {len(valid_combinations['w_indices'])}")
+            logger.debug(f"  w_indices: {len(valid_combinations['w_indices'])}")
         
     else:
         # Sin preprocesamiento: usar todas las combinaciones
@@ -392,7 +392,7 @@ def milp_ceflp(params, instance, instance_problem, result_dir, logger, problem_t
         }
     
     preprocessing_time = time.time() - preprocessing_start
-    logger.info(f"Tiempo de preprocesamiento: {preprocessing_time:.4f} segundos")
+    logger.debug(f"Tiempo de preprocesamiento: {preprocessing_time:.4f} segundos")
     
     # Crear modelo
     model_start = time.time()
@@ -412,16 +412,16 @@ def milp_ceflp(params, instance, instance_problem, result_dir, logger, problem_t
         raise ValueError(f"Tipo de problema no reconocido: {problem_type}. Elija 'P1' o 'P2'.")
     
     model_time = time.time() - model_start
-    logger.info(f"Tiempo en crear modelo: {model_time:.4f} segundos")
-    logger.info(f"Variables del modelo: {model.numVariables()}")
-    logger.info(f"Restricciones del modelo: {model.numConstraints()}")
+    logger.debug(f"Tiempo en crear modelo: {model_time:.4f} segundos")
+    logger.debug(f"Variables del modelo: {model.numVariables()}")
+    logger.debug(f"Restricciones del modelo: {model.numConstraints()}")
     
     # Resolver
     solve_start = time.time()
     
     # Configurar solver optimizado
     if optimizer == "CBC":
-        log_path = f"i{instance+1}_cbc.log"
+        log_path = f"i{instance}_cbc.log"
         solver = pulp.PULP_CBC_CMD(
             msg=True, 
             timeLimit=time_limit, 
@@ -439,13 +439,13 @@ def milp_ceflp(params, instance, instance_problem, result_dir, logger, problem_t
             ]
         )
     elif optimizer == "GLPK":
-        log_path = f"i{instance+1}_glpk.log"
+        log_path = f"i{instance}_glpk.log"
         options = ['--log', os.path.join(log_dir, log_path), '--cuts']
         if time_limit:
             options.extend(['--tmlim', str(time_limit)])
         solver = pulp.GLPK_CMD(msg=True, options=options)
     elif optimizer == "CPLEX":
-        log_path = f"i{instance+1}_cplex.log"
+        log_path = f"i{instance}_cplex.log"
         solver = pulp.CPLEX_CMD(
             path="/home/andrea/Documentos/Close-Enough-Facility-Location/cplex/bin/x86-64_linux/cplex",
             msg=True,
@@ -455,7 +455,7 @@ def milp_ceflp(params, instance, instance_problem, result_dir, logger, problem_t
         )
     else:
         logger.warning(f"Optimizer {optimizer} not recognized. Using default CBC solver.")
-        log_path = f"i{instance+1}_cbc.log"
+        log_path = f"i{instance}_cbc.log"
         solver = pulp.PULP_CBC_CMD(
             msg=True, 
             timeLimit=time_limit, 
@@ -478,7 +478,7 @@ def milp_ceflp(params, instance, instance_problem, result_dir, logger, problem_t
     # Guardar resultados (código original adaptado)
     if optimal_solution:
         results_dict = {}
-        filename = f"{instance_problem}.json"
+        filename = f"{n_nodos}.json"
         filepath = os.path.join(result_dir, filename)
         
         if os.path.exists(filepath):
@@ -494,21 +494,21 @@ def milp_ceflp(params, instance, instance_problem, result_dir, logger, problem_t
         else:
             objective_value = "Infeasible"
         
-        key = f"i{instance+1}"
+        key = f"i{instance}"
         results_dict[key] = objective_value
         
         with open(filepath, 'w') as f:
             json.dump(results_dict, f, indent=4)
         
-        print(f"Instancia {instance+1} ({problem_type}) objetivo {objective_value} guardado en {filepath}")
+        print(f"Instancia {instance} ({problem_type}) objetivo {objective_value} guardado en {filepath}")
     
     else:
         # Guardar resultados detallados
-        filename = f"i{instance+1}_{problem_type}_result.txt"
+        filename = f"i{instance}_{problem_type}_result.txt"
         filepath = os.path.join(result_dir, filename)
         
         with open(filepath, "w", encoding="utf-8") as f:
-            f.write(f"Instancia: {instance+1}\n")
+            f.write(f"Instancia: {instance}\n")
             f.write(f"Tipo de Problema: {problem_type}\n")
             f.write(f"Estado: {pulp.LpStatus[model.status]}\n")
             f.write(f"Valor Objetivo: {str(round(pulp.value(model.objective), 2))}\n")
@@ -564,7 +564,7 @@ def milp_ceflp(params, instance, instance_problem, result_dir, logger, problem_t
                             else:
                                 f.write(f"  Cliente {i} a Punto {k_or_i} servido por Instalación {j}\n")
         
-        print(f"Instancia {instance+1} ({problem_type}) resuelta. Estado: {pulp.LpStatus[model.status]}")
+        print(f"Instancia {instance} ({problem_type}) resuelta. Estado: {pulp.LpStatus[model.status]}")
         print(f"Tiempo total de optimización: {preprocessing_time + model_time + solve_time:.4f} segundos")
 
 

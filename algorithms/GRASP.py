@@ -355,11 +355,11 @@ class GRASPSearch:
         """Guardado optimizado de la mejor solución"""
         os.makedirs(self.result_dir, exist_ok=True)
         
-        filename = f"{self.instance+1}_best_solution.txt"
+        filename = f"{self.instance}_best_solution.txt"
         filepath = os.path.join(self.result_dir, filename)
         
         with open(filepath, 'w') as f:
-            f.write(f"Instancia: {self.instance+1}\n")
+            f.write(f"Instancia: {self.instance}\n")
             f.write(f"Número de vecinos: {self.num_neighbors}\n")
             f.write(f"Alfa: {self.alpha}\n")
             f.write(f"Costo mejor solución: {self.best_solution.cost}\n")

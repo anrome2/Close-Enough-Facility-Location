@@ -306,7 +306,7 @@ class Solution:
         
         # Activar instalaciones seleccionadas
         for j in selected_facilities:
-            self.y[j] = 1
+            self.y[j-1] = 1
             
         self.algorithm.logger.info(
             f"[K-means] Instalaciones seleccionadas: {sorted(selected_facilities)}"
@@ -315,7 +315,7 @@ class Solution:
     def _initialize_pickups_kmeans(self):
         """Inicialización de puntos de recogida usando K-means"""
         # Obtener instalaciones abiertas
-        open_facilities = [j for j in self.algorithm.J if self.y[j] == 1]
+        open_facilities = [j for j in self.algorithm.J if self.y[j-1] == 1]
         
         if not open_facilities:
             self.algorithm.logger.warning("No hay instalaciones abiertas para inicializar puntos de recogida")
@@ -323,14 +323,14 @@ class Solution:
         
         if len(self.algorithm.K) <= self.algorithm.t:
             # Si tenemos pocos puntos de recogida, seleccionar todos
-            for k in self.algorithm.K:
-                self.nu[k] = 1
+            for idx_k, k in enumerate(self.algorithm.K):
+                self.nu[idx_k] = 1
             self.algorithm.logger.info(f"[K-means] Todos los puntos de recogida seleccionados: {list(self.algorithm.K)}")
             return
         
         # Crear coordenadas para puntos de recogida
         if hasattr(self.algorithm, 'pickup_coords') and self.algorithm.pickup_coords is not None:
-            pickup_coords = np.array([self.algorithm.pickup_coords[k] for k in self.algorithm.K])
+            pickup_coords = np.array([coor for coor in self.algorithm.pickup_coords])
         else:
             # Fallback: usar distancias a instalaciones abiertas
             pickup_coords = []
@@ -405,8 +405,8 @@ class Solution:
             selected_pickups.update([k for k, _ in sorted_remaining[:needed]])
         
         # Activar puntos de recogida seleccionados
-        for k in selected_pickups:
-            self.nu[k] = 1
+        for idx_k, k in enumerate(selected_pickups):
+            self.nu[idx_k] = 1
             
         self.algorithm.logger.info(
             f"[K-means] Puntos de recogida seleccionados: {sorted(selected_pickups)}"

@@ -121,7 +121,7 @@ def run_single_genetic_execution(args):
 
 def run_single_tabu_execution(args):
     """Ejecuta una sola ejecución de TABU - función para paralelización plana"""
-    params, instance, base_result_dir, problem, inicialization, tabu_tenure, time_limit, run_idx, combination_name = args
+    params, instance, base_result_dir, problem, inicialization, tabu_tenure, max_iter, gamma_f, gamma_q, time_limit, run_idx, combination_name = args
     
     worker_logger = setup_worker_logger()
     
@@ -142,6 +142,9 @@ def run_single_tabu_execution(args):
         problem=problem, 
         result_dir=result_dir, 
         tabu_tenure=tabu_tenure, 
+        max_iter_without_improvement=max_iter,
+        gamma_f=gamma_f,
+        gamma_q=gamma_q,
         time_limit=time_limit, 
         logger=worker_logger
     )
@@ -379,9 +382,12 @@ def run_grasp_hyperparam_grid_search(params, instance, result_dir, logger, probl
 def run_tabu_hyperparam_grid_search(params, instance, result_dir, logger, problem="P2", num_runs=8, time_limit=100, num_processes=None):
     """Búsqueda de hiperparámetros TABU con paralelización plana completa"""
     num_clientes = len(params['I'])
-    tabu_tenure_list = [int(0.15 * num_clientes), int(0.25 * num_clientes), int(0.5 * num_clientes), int(sqrt(num_clientes))]
+    tabu_tenure_list = [0.1, 0.2, 0.3, 0.4, 0.5]
     inicializacion_list = ["random", "greedy", "kmeans"]
-    combinations = list(product(tabu_tenure_list, inicializacion_list))
+    max_iter_without_imrpovement = [10, 15, 20, 25]
+    gamma_f = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
+    gamma_q = [0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
+    combinations = list(product(tabu_tenure_list, inicializacion_list, max_iter_without_imrpovement, gamma_f, gamma_q))
     
     # Calcular el total de ejecuciones individuales
     total_executions = len(combinations) * num_runs
@@ -397,12 +403,12 @@ def run_tabu_hyperparam_grid_search(params, instance, result_dir, logger, proble
     
     # Preparar TODAS las ejecuciones individuales
     all_args = []
-    for tabu_tenure, inicializacion in combinations:
-        combination_name = f"tabu_{tabu_tenure}_init_{inicializacion}"
+    for tabu_tenure, inicializacion, max_iter, gamma_f, gamma_q in combinations:
+        combination_name = f"tabu_{tabu_tenure}_init_{inicializacion}_maxiter_{max_iter}_gammaf_{gamma_f}_gammaq_{gamma_q}"
         for run_idx in range(num_runs):
             all_args.append((
                 params, instance, result_dir, problem, inicializacion, 
-                tabu_tenure, time_limit, run_idx, combination_name
+                tabu_tenure, max_iter, gamma_f, gamma_q, time_limit, run_idx, combination_name
             ))
     
     # Ejecutar TODAS las ejecuciones en paralelo
@@ -555,22 +561,25 @@ def run_grasp_hyperparam_random_search(params, instance, result_dir, logger, pro
     
     return df
 
-def run_tabu_hyperparam_random_search(params, instance, result_dir, logger, problem="P2", num_runs=8, time_limit=100, num_processes=None, num_random_combinations=10):
+def run_tabu_hyperparam_random_search(params, instance, result_dir, logger, problem="P2", num_runs=8, time_limit=100, num_processes=None, num_random_combinations=25):
     """Búsqueda de hiperparámetros TABU con paralelización plana completa"""
     combinations = set()
     num_clientes = len(params['I'])
     init_strategies = ["random", "greedy", "kmeans"]
+    tabu_tenure_list = np.linspace(0.1, 0.5, 5)
+    max_iter_without_improvement = np.linspace(5, 20, 4)
+    gamma_fvect = np.linspace(0.1, 1, 10)
+    gamma_qvect = np.linspace(0.1, 1, 10)
 
     while len(combinations) < num_random_combinations:
         # Tabu tenure aleatorio, entre 5 y 0.2 * n_clientes
-        tabu_tenure = random.randint(int(0.25 * num_clientes), int(0.5 * num_clientes))
-        
-        # Asegurar que no sea mayor que num_clientes
-        tabu_tenure = min(tabu_tenure, num_clientes)
-
+        tabu_tenure = random.choice(tabu_tenure_list)
         init_method = random.choice(init_strategies)
+        max_iter = random.choice(max_iter_without_improvement)
+        gamma_f = random.choice(gamma_fvect)
+        gamma_q = random.choice(gamma_qvect)
 
-        combinations.add((tabu_tenure, init_method))
+        combinations.add((tabu_tenure, init_method, max_iter, gamma_f, gamma_q))
 
     combinations = list(combinations)
     
@@ -588,12 +597,12 @@ def run_tabu_hyperparam_random_search(params, instance, result_dir, logger, prob
     
     # Preparar TODAS las ejecuciones individuales
     all_args = []
-    for tabu_tenure, inicializacion in combinations:
-        combination_name = f"tabu_{tabu_tenure}_init_{inicializacion}"
+    for tabu_tenure, inicializacion, max_iter, gamma_f, gamma_q in combinations:
+        combination_name = f"tabu_{tabu_tenure}_init_{inicializacion}_maxiter_{max_iter}_gammaf_{gamma_f}_gammaq_{gamma_q}"
         for run_idx in range(num_runs):
             all_args.append((
                 params, instance, result_dir, problem, inicializacion, 
-                tabu_tenure, time_limit, run_idx, combination_name
+                tabu_tenure, max_iter, gamma_f, gamma_q, time_limit, run_idx, combination_name
             ))
     
     # Ejecutar TODAS las ejecuciones en paralelo
@@ -798,7 +807,7 @@ def run_grasp_hyperparam_bayesian_search(params, instance, result_dir, logger, p
     
     return df
 
-def evaluate_tabu_hyperparams(tabu_tenure, inicializacion, params, instance, result_dir, logger, problem, num_runs, time_limit, num_processes):
+def evaluate_tabu_hyperparams(tabu_tenure, inicializacion, max_iter, gamma_f, gamma_q, params, instance, result_dir, logger, problem, num_runs, time_limit, num_processes):
     """Función objetivo para evaluación bayesiana de hiperparámetros TABU"""
     # Convertir tabu_tenure de float a int (requerido por scikit-optimize)
     tabu_tenure = int(round(tabu_tenure))
@@ -814,7 +823,7 @@ def evaluate_tabu_hyperparams(tabu_tenure, inicializacion, params, instance, res
     for run_idx in range(num_runs):
         all_args.append((
             params, instance, combo_dir, problem, inicializacion, 
-            tabu_tenure, time_limit, run_idx, combination_name
+            tabu_tenure, max_iter, gamma_f, gamma_q, time_limit, run_idx, combination_name
         ))
     
     # Ejecutar comité en paralelo
@@ -864,7 +873,10 @@ def run_tabu_hyperparam_bayesian_search(params, instance, result_dir, logger, pr
     # Definir el espacio de búsqueda
     dimensions = [
         Integer(min_tenure, max_tenure, name='tabu_tenure'),
-        Categorical(['random', 'greedy', 'kmeans'], name='inicializacion')
+        Categorical(['random', 'greedy', 'kmeans'], name='inicializacion'),
+        Integer(5, 20, name='max_iter'),
+        Real(0.1, 1.0, name='gamma_f'),
+        Real(0.1, 1.0, name='gamma_q')
     ]
     
     # Función objetivo con decorador para argumentos nombrados
@@ -873,6 +885,9 @@ def run_tabu_hyperparam_bayesian_search(params, instance, result_dir, logger, pr
         return evaluate_tabu_hyperparams(
             tabu_tenure=params_dict['tabu_tenure'],
             inicializacion=params_dict['inicializacion'],
+            max_iter=params_dict['max_iter'],
+            gamma_f=params_dict['gamma_f'],
+            gamma_q=params_dict['gamma_q'],
             params=params,
             instance=instance,
             result_dir=result_dir,
@@ -1012,13 +1027,11 @@ def save_solution(sol, time, costs, alpha=None, num_neighbors=None, instance=Non
         f.write(f"Costo mejor solución (comité): {sol.cost:.2f}\n")
         f.write(f"Tiempo mejor solución (comité): {sol.time:.2f} segundos\n")
         f.write(f"Instalaciones abiertas:\n")
-        for j, val in sol.y.items():
-            if val == 1:
-                f.write(f"  Instalación {j}\n")
+        for j in sol.open_facilities:
+            f.write(f"  Instalación {j}\n")
         f.write(f"Puntos de recogida abiertos:\n")
-        for k, val in sol.nu.items():
-            if val == 1:
-                f.write(f"  Punto {k}\n")
+        for k in sol.open_pickups:
+            f.write(f"  Punto {k}\n")
         f.write("Detalles del comité:\n")
         f.write(f"Miembros del comité: {len(costs)}\n")
         f.write(f"Tiempo total del comité: {time:.2f} segundos\n")

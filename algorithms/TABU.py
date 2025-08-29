@@ -9,7 +9,7 @@ import numpy as np
 from structure.solution import Solution
     
 class TabuSearch:
-    def __init__(self, params, inicialization, instance, result_dir, logger: logging, problem: str = "P2", time_limit=100, tabu_tenure=0.25):
+    def __init__(self, params, inicializacion, instance, result_dir, logger: logging, problem: str = "P2", time_limit=100, tabu_tenure=0.25, max_iter_without_improvement: int = 10, gamma_f: float = 0.5, gamma_q: float = 0.5):
 
         self.I = params['I']
         self.J = params['J']
@@ -20,12 +20,14 @@ class TabuSearch:
         self.K_i = params['K_i']
         self.p = params['p']
         self.t = params['t']
+        self.facility_coords = params["nodes"]
+        self.pickup_coords = params["pickuppoints"]
         self.n_pickups = len(params['K'])
         self.n_customers = len(self.I)
 
         # Parámetros de configuración
         self.time_limit = time_limit 
-        self.max_iter_without_improvement = 10 if len(self.I) < 30 else 3
+        self.max_iter_without_improvement = max_iter_without_improvement
 
         # Tabu tenure dinámico basado en el tamaño del problema
         base_tenure = max(5, int(tabu_tenure * len(self.I)))
@@ -44,13 +46,13 @@ class TabuSearch:
         self.AO_pickup = {k: [] for k in self.K}
         
         # Parámetros para diversificación (según el paper)
-        self.gamma_f = 0.75  # Factor de frecuencia
-        self.gamma_q = 0.5   # Factor de calidad
+        self.gamma_f = gamma_f  # Factor de frecuencia
+        self.gamma_q = gamma_q   # Factor de calidad
         
         self.best_solution = None
         self.current_solution = None
         self.history = []
-        self.inicialization = inicialization
+        self.inicializacion = inicializacion
         self.result_dir = result_dir
         self.instance = instance
         self.problem = problem
@@ -111,17 +113,17 @@ class TabuSearch:
     def _initialize_solution(self):
         """Inicialización con manejo de errores mejorado"""
         try:
-            if self.inicialization == "greedy":
+            if self.inicializacion == "greedy":
                 self.current_solution.initialize_greedy(alpha=0)
-            elif self.inicialization == "random":
+            elif self.inicializacion == "random":
                 self.current_solution.initialize_random()
-            elif self.inicialization == "kmeans":
+            elif self.inicializacion == "kmeans":
                 self.current_solution.initialize_kmeans()
             else:
-                self.logger.warning(f"Inicialización {self.inicialization} desconocida, usando greedy")
+                self.logger.warning(f"Inicialización {self.inicializacion} desconocida, usando greedy")
                 self.current_solution.initialize_greedy()
         except Exception as e:
-            self.logger.error(f"Error en inicialización {self.inicialization}: {e}")
+            self.logger.error(f"Error en inicialización {self.inicializacion}: {e}")
             self.logger.info("Fallback a inicialización greedy")
             self.current_solution.initialize_greedy()
 
@@ -552,7 +554,7 @@ class TabuSearch:
             with open(filepath, 'w') as f:
                 f.write(f"Instancia: {self.instance+1}\n")
                 f.write(f"Problema: {self.problem}\n")
-                f.write(f"Inicialización: {self.inicialization}\n")
+                f.write(f"Inicialización: {self.inicializacion}\n")
                 f.write(f"Costo mejor solución: {self.best_solution.cost:.2f}\n")
                 f.write(f"Tiempo ejecución (seg): {solve_time:.2f}\n")
                 f.write(f"Iteraciones máximas: {self.max_iter}\n")
