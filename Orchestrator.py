@@ -32,6 +32,18 @@ def load_optimal_solutions():
     
     return optimal_solutions
 
+def get_combo_columns(algorithm_type):
+
+    # Definir parámetros relevantes según el algoritmo
+    algo_params = {
+        'tabu': ['tabu_tenure', 'inicializacion', 'time_limit'],
+        'genetic': ['mutation_rate', 'tournament', 'inicializacion'],
+        'grasp': ['alpha'],
+        # puedes añadir más algoritmos aquí...
+    }
+    params = algo_params.get(algorithm_type.lower(), [])
+    return params
+
 def calculate_gap(primal_cost, optimal_cost):
     """
     Calcula el GAP de optimalidad según la fórmula:
@@ -39,15 +51,16 @@ def calculate_gap(primal_cost, optimal_cost):
     """
     if optimal_cost is None or primal_cost <= 0:
         return None
-    
-    gap = 100 * (primal_cost - optimal_cost) / primal_cost
+    # print(primal_cost)
+    # print("OPTIMAL ", optimal_cost)
+    gap = (primal_cost - optimal_cost) / primal_cost
     return max(0, gap)  # GAP no puede ser negativo
 
 def analyze_results(costs, optimal_cost=None):
     """Analiza los resultados de múltiples ejecuciones"""
     costs_array = np.array(costs)
-    print(costs)
-    print(optimal_cost)
+    # print(float(np.std(costs_array)))
+    # print(optimal_cost)
     
     analysis = {
         'mean_cost': float(np.mean(costs_array)),
@@ -60,11 +73,12 @@ def analyze_results(costs, optimal_cost=None):
     }
     
     if optimal_cost is not None:
+        optimal_cost = float(optimal_cost)
         # Calcular GAPs
         gaps = [calculate_gap(cost, optimal_cost) for cost in costs]
-        print("GAPS ", gaps)
+        # print("GAPS ", gaps)
         valid_gaps = [g for g in gaps if g is not None]
-        print("VALID GAP ", valid_gaps)
+        # print("VALID GAP ", valid_gaps)
         if valid_gaps:
             analysis['mean_gap'] = float(np.mean(valid_gaps))
             analysis['best_gap'] = float(np.min(valid_gaps))
@@ -77,6 +91,36 @@ def analyze_results(costs, optimal_cost=None):
         analysis['non_optimal_solutions'] = len(costs) - optimal_count
     
     return analysis
+
+def summarize_results(df_all, optimal_solutions):
+    """
+    A partir de los resultados crudos (df_all), calcular métricas agregadas por combinación.
+    """
+    summary = []
+
+    for (combo_idx, instance_name), group in df_all.groupby(['combo_idx', 'instance_name']):
+        costs = group['cost'].tolist()
+        times = group['time'].tolist()
+
+        optimal_cost = optimal_solutions.get(instance_name)
+        analysis = analyze_results(costs, optimal_cost)
+
+        entry = {
+            'combo_idx': combo_idx,
+            'instance_name': instance_name,
+            **analysis,
+            'mean_time': float(np.mean(times))
+        }
+
+        # Añadir los parámetros del combo (ejemplo: mutation_rate, tournament...)
+        for col in ['mutation_rate', 'tournament', 'inicializacion', 'tabu_tenure', 'max_iter', 'gamma_f', 'gamma_q']:
+            if col in group.columns:
+                entry[col] = group[col].iloc[0]
+
+        summary.append(entry)
+
+    return pd.DataFrame(summary)
+
 
 def save_compact_results(results_data, result_dir, algorithm_name, search_type="committee"):
     """Guarda los resultados de forma compacta y clara"""
@@ -117,7 +161,7 @@ def save_compact_results(results_data, result_dir, algorithm_name, search_type="
         if 'instance' in df.columns:
             # Crea un diccionario para las agregaciones
             agg_dict = {
-                'best_cost': ['mean', 'std', 'min', 'max'],
+                'best_cost': ['mean', 'min', 'max'],
                 'mean_cost': 'mean',
             }
             
@@ -129,6 +173,17 @@ def save_compact_results(results_data, result_dir, algorithm_name, search_type="
             
             stats_file = os.path.join(result_dir, f"{algorithm_name}_stats_by_instance.csv")
             stats_by_instance.to_csv(stats_file)
+
+def save_global_results(all_results, result_dir, algorithm_name):
+    os.makedirs(result_dir, exist_ok=True)
+
+    df = pd.DataFrame(all_results)
+    df.to_csv(os.path.join(result_dir, f"{algorithm_name}_all_results.csv"), index=False)
+
+    # También un Excel si quieres explorar mejor
+    # df.to_excel(os.path.join(result_dir, f"{algorithm_name}_all_results.xlsx"), index=False)
+    return df
+
 
 def run_single_algorithm_execution(args):
     """Función genérica para ejecutar una sola ejecución de cualquier algoritmo"""
@@ -148,6 +203,7 @@ def run_single_grasp_execution_improved(args):
     params = args['params']
     instance = args['instance']
     instance_name = args['instance_name']
+    n_nodes = args['n_nodes']
     alpha = args['alpha']
     frac_neighbors = args['frac_neighbors']
     problem = args['problem']
@@ -180,10 +236,11 @@ def run_single_grasp_execution_improved(args):
             'algorithm_type': 'GRASP',
             'instance': instance,
             'instance_name': instance_name,
+            'n_nodes': n_nodes,
             'run_idx': run_idx,
-            'cost': grasp.best_solution.cost,
+            'cost': round(grasp.best_solution.cost, 2),
             'time': grasp.best_solution.time,
-            'solution': deepcopy(grasp.best_solution),
+            # 'solution': deepcopy(grasp.best_solution),
             'alpha': alpha,
             'frac_neighbors': frac_neighbors,
             'success': True
@@ -194,10 +251,11 @@ def run_single_grasp_execution_improved(args):
             'algorithm_type': 'GRASP',
             'instance': instance,
             'instance_name': instance_name,
+            'n_nodes': n_nodes,
             'run_idx': run_idx,
             'cost': float('inf'),
             'time': 0,
-            'solution': None,
+            # 'solution': None,
             'alpha': alpha,
             'frac_neighbors': frac_neighbors,
             'success': False,
@@ -216,9 +274,11 @@ def run_single_genetic_execution_improved(args):
     params = args['params']
     instance = args['instance']
     instance_name = args['instance_name']
-    generations = args['generations']
+    n_nodes = args['n_nodes']
+    combo_idx = args['combo_idx']
+    # generations = args['generations']
     mutation_rate = args['mutation_rate']
-    crossover_rate = args['crossover_rate']
+    # crossover_rate = args['crossover_rate']
     tournament = args['tournament']
     inicializacion = args['inicializacion']
     problem = args['problem']
@@ -238,25 +298,29 @@ def run_single_genetic_execution_improved(args):
             problem=problem,
             result_dir=run_dir,
             inicializacion=inicializacion,
-            generations=generations,
+            # generations=generations,
             mutation_rate=mutation_rate,
-            crossover_rate=crossover_rate,
+            # crossover_rate=crossover_rate,
             tournament=tournament,
             logger=logger
         )
+        start_time = time.time()
         genetic.run()
+        print(f"Ha tardado {time.time()-start_time}")
         
         return {
             'algorithm_type': 'GENETIC',
             'instance': instance,
             'instance_name': instance_name,
+            'n_nodes': n_nodes,
+            'combo_idx': combo_idx,
             'run_idx': run_idx,
-            'cost': genetic.best_individual.cost,
+            'cost': round(genetic.best_individual.cost, 2),
             'time': genetic.best_individual.time,
-            'solution': deepcopy(genetic.best_individual),
-            'generations': generations,
+            # 'solution': deepcopy(genetic.best_individual),
+            # 'generations': generations,
             'mutation_rate': mutation_rate,
-            'crossover_rate': crossover_rate,
+            # 'crossover_rate': crossover_rate,
             'tournament': tournament,
             'inicializacion': inicializacion,
             'success': True
@@ -267,13 +331,15 @@ def run_single_genetic_execution_improved(args):
             'algorithm_type': 'GENETIC',
             'instance': instance,
             'instance_name': instance_name,
+            'n_nodes': n_nodes,
+            'combo_idx': combo_idx,
             'run_idx': run_idx,
             'cost': float('inf'),
             'time': 0,
-            'solution': None,
-            'generations': generations,
+            # 'solution': None,
+            # 'generations': generations,
             'mutation_rate': mutation_rate,
-            'crossover_rate': crossover_rate,
+            # 'crossover_rate': crossover_rate,
             'tournament': tournament,
             'inicializacion': inicializacion,
             'success': False,
@@ -291,11 +357,13 @@ def run_single_tabu_execution_improved(args):
     params = args['params']
     instance = args['instance']
     instance_name = args['instance_name']
+    n_nodes = args['n_nodes']
+    time_limit = args['time_limit']
     tabu_tenure = args['tabu_tenure']
     inicializacion = args['inicializacion']
-    max_iter = args['max_iter']
-    gamma_f = args['gamma_f']
-    gamma_q = args['gamma_q']
+    # max_iter = args['max_iter']
+    # gamma_f = args['gamma_f']
+    # gamma_q = args['gamma_q']
     time_limit = args['time_limit']
     problem = args['problem']
     run_idx = args['run_idx']
@@ -315,9 +383,9 @@ def run_single_tabu_execution_improved(args):
             problem=problem,
             result_dir=run_dir,
             tabu_tenure=tabu_tenure,
-            max_iter_without_improvement=max_iter,
-            gamma_f=gamma_f,
-            gamma_q=gamma_q,
+            # max_iter_without_improvement=max_iter,
+            # gamma_f=gamma_f,
+            # gamma_q=gamma_q,
             time_limit=time_limit,
             logger=logger
         )
@@ -329,15 +397,17 @@ def run_single_tabu_execution_improved(args):
             'algorithm_type': 'tabu',
             'instance': instance,
             'instance_name': instance_name,
+            'n_nodes': n_nodes,
             'run_idx': run_idx,
-            'cost': tabu.best_solution.cost,
+            'cost': round(tabu.best_solution.cost, 2),
             'time': tabu.best_solution.time,
-            'solution': deepcopy(tabu.best_solution),
+            # 'solution': deepcopy(tabu.best_solution),
             'tabu_tenure': tabu_tenure,
             'inicializacion': inicializacion,
-            'max_iter': max_iter,
-            'gamma_f': gamma_f,
-            'gamma_q': gamma_q,
+            # 'max_iter': max_iter,
+            # 'gamma_f': gamma_f,
+            # 'gamma_q': gamma_q,
+            'time_limit': time_limit,
             'success': True
         }
     except Exception as e:
@@ -346,15 +416,17 @@ def run_single_tabu_execution_improved(args):
             'algorithm_type': 'TABU',
             'instance': instance,
             'instance_name': instance_name,
+            'n_nodes': n_nodes,
             'run_idx': run_idx,
             'cost': float('inf'),
             'time': 0,
-            'solution': None,
+            # 'solution': None,
             'tabu_tenure': tabu_tenure,
             'inicializacion': inicializacion,
-            'max_iter': max_iter,
-            'gamma_f': gamma_f,
-            'gamma_q': gamma_q,
+            # 'max_iter': max_iter,
+            # 'gamma_f': gamma_f,
+            # 'gamma_q': gamma_q,
+            'time_limit': time_limit,
             'success': False,
             'error': str(e)
         }
@@ -365,7 +437,7 @@ def run_single_tabu_execution_improved(args):
         except:
             pass
 
-def run_committee_multiple_instances(algorithm_params_list, instances_data, result_base_dir, 
+def run_committee_multiple_instances(algorithm_params_list, instances_data, n_nodes, result_base_dir, 
                                   algorithm_name, num_runs=5, num_processes=None):
     """
     Ejecuta comités para múltiples instancias de forma eficiente
@@ -400,6 +472,7 @@ def run_committee_multiple_instances(algorithm_params_list, instances_data, resu
                 **instance_params,
                 'instance': i,
                 'instance_name': instance_name,
+                'n_nodes': n_nodes,
                 'run_idx': run_idx,
                 'temp_dir': os.path.join('/tmp', f'{algorithm_name}_committee')
             }
@@ -443,6 +516,7 @@ def run_committee_multiple_instances(algorithm_params_list, instances_data, resu
         instance_summary = {
             'instance': instance_idx + 1,
             'instance_name': instance_name,
+            'n_nodes': n_nodes,
             'algorithm': algorithm_name,
             **analysis,
             'mean_time': float(np.mean(times)),
@@ -488,6 +562,17 @@ def run_committee_multiple_instances(algorithm_params_list, instances_data, resu
     # Guardar resultados compactos
     result_dir = os.path.join(result_base_dir, f"{algorithm_name}_committee_results")
     save_compact_results(summary_data, result_dir, algorithm_name, "committee")
+
+    # Guardar todos los resultados crudos (ccada combinación)
+    df_all = save_global_results(all_results, result_dir, algorithm_name)
+
+    # Agrupar por nº de nodos
+    stats_by_nnodes = df_all.groupby(['n_nodes', 'algorithm_type']).agg({
+        'cost': ['mean', 'std', 'min', 'max'],
+        'time': ['mean', 'sum'],
+    }).round(4)
+    stats_by_nnodes.to_csv(os.path.join(result_dir, f"{algorithm_name}_global_stats_by_nnodes.csv"), mode='a', header=False)
+
     
     print(f"\n=== Comités {algorithm_name.upper()} completados ===")
     print(f"Tiempo total: {total_time:.2f} segundos")
@@ -496,7 +581,7 @@ def run_committee_multiple_instances(algorithm_params_list, instances_data, resu
     
     return summary_data
 
-def run_hyperparameter_search_multiple_instances(algorithm_name, param_combinations, instances_data, 
+def run_hyperparameter_search_multiple_instances(algorithm_name, param_combinations, instances_data, n_nodes,
                                                result_base_dir, num_runs=8, num_processes=None):
     """
     Búsqueda de hiperparámetros para múltiples instancias con estructura compacta
@@ -529,6 +614,7 @@ def run_hyperparameter_search_multiple_instances(algorithm_name, param_combinati
                     'params': params,  # Datos de la instancia
                     'instance': instance_idx,
                     'instance_name': instance_name,
+                    'n_nodes': n_nodes,
                     'run_idx': run_idx,
                     'combo_idx': combo_idx,
                     'temp_dir': os.path.join('/tmp', f'{algorithm_name}_hyperparam'),
@@ -553,6 +639,17 @@ def run_hyperparameter_search_multiple_instances(algorithm_name, param_combinati
     results_by_combo_instance = {}
     
     for result in all_results:
+        instance_name = result['instance_name']
+        optimal_cost = optimal_solutions.get(instance_name)
+        result['optimal_cost'] = round(float(optimal_cost), 2)
+        
+        if result['optimal_cost'] is not None:
+            result['gap'] = calculate_gap(result['cost'], result['optimal_cost'])
+            # print("ABS ", abs(result['cost'] - float(optimal_cost)))
+            result['is_optimal'] = int(abs(result['cost'] - result['optimal_cost']) <= 1e-6)
+        else:
+            result['gap'] = None
+            result['is_optimal'] = 0
         key = (result.get('combo_idx', 0), result['instance'])
         if key not in results_by_combo_instance:
             results_by_combo_instance[key] = []
@@ -579,14 +676,16 @@ def run_hyperparameter_search_multiple_instances(algorithm_name, param_combinati
             times = [r['time'] for r in successful_results]
             
             optimal_cost = optimal_solutions.get(instance_name)
+            optimal_cost = round(float(optimal_cost), 2)
             analysis = analyze_results(costs, optimal_cost)
-            print(analysis)
+            # print(analysis)
             
             # Crear entrada del resumen
             combo_summary = {
                 'combo_idx': combo_idx,
                 'instance': instance_idx + 1,
                 'instance_name': instance_name,
+                'n_nodes': n_nodes,
                 'algorithm': algorithm_name,
                 **param_combo,  # Parámetros de la combinación
                 **analysis,
@@ -602,6 +701,24 @@ def run_hyperparameter_search_multiple_instances(algorithm_name, param_combinati
     # Guardar resultados compactos
     result_dir = os.path.join(result_base_dir, f"{algorithm_name}_hyperparameter_search")
     save_compact_results(hyperparameter_summary, result_dir, algorithm_name, "hyperparameters")
+
+    # Guardar todos los resultados crudos (ccada combinación)
+    df_all = save_global_results(all_results, result_dir, algorithm_name)
+    # df_all = add_combo_index(df_all, algorithm_name)
+
+    # summary_df = summarize_results(df_all, optimal_solutions)
+
+    # generate_final_report(summary_df.to_dict(orient='records'), result_dir, algorithm_name, "hyperparameters")
+    columns_names = get_combo_columns(algorithm_type=algorithm_name)
+    # Agrupar por nº de nodos
+    columns_names.append('n_nodes')
+    stats_by_nnodes = df_all.groupby(columns_names).agg({
+        'cost': ['mean', 'std', 'min', 'max'],
+        'time': ['mean', 'sum'],
+        'gap': 'mean',                 # GAP promedio
+        'is_optimal': 'sum'            # Nº de soluciones óptimas
+    }).round(4)
+    stats_by_nnodes.to_csv(os.path.join(result_dir, f"{algorithm_name}_global_stats_by_nnodes.csv"))
     
     # Estadísticas finales
     print(f"\n=== Búsqueda de hiperparámetros {algorithm_name.upper()} completada ===")
@@ -609,7 +726,7 @@ def run_hyperparameter_search_multiple_instances(algorithm_name, param_combinati
     print(f"Tiempo promedio por combinación: {total_time/len(param_combinations):.2f} segundos")
     print(f"Resultados guardados en: {result_dir}")
     
-    return hyperparameter_summary
+    return stats_by_nnodes
 
 # Funciones específicas para cada algoritmo
 def generate_grasp_param_combinations(search_type="grid", num_combinations=None):
@@ -645,13 +762,13 @@ def generate_grasp_param_combinations(search_type="grid", num_combinations=None)
 def generate_genetic_param_combinations(search_type="grid", num_combinations=None):
     """Genera combinaciones de parámetros para Genetic Algorithm"""
     if search_type == "grid":
-        generations_list = [50, 100]
-        mutation_rates = [0.01, 0.05, 0.1]
-        crossover_rates = [0.8, 0.9, 0.95]
-        tournaments = [3, 5, 7]
+        # generations_list = [50, 75]
+        mutation_rates = [0.05, 0.1]
+        # crossover_rates = [0.9, 0.95, 0.99]
+        tournaments = [3, 5]
         inicializaciones = ["random", "greedy"]
         
-        combinations = list(product(generations_list, mutation_rates, crossover_rates, tournaments, inicializaciones))
+        combinations = list(product(tournaments, mutation_rates, inicializaciones))
         
         return [{'algorithm_type': 'GENETIC', 'generations': g, 'mutation_rate': mr, 
                 'crossover_rate': cr, 'tournament': t, 'inicializacion': init, 'problem': 'P2'} 
@@ -659,21 +776,21 @@ def generate_genetic_param_combinations(search_type="grid", num_combinations=Non
     
     elif search_type == "random":
         if num_combinations is None:
-            num_combinations = 15
+            num_combinations = 5
         
         combinations = []
         for _ in range(num_combinations):
-            generations = random.choice([30, 50, 75, 100])
-            mutation_rate = round(random.uniform(0.001, 0.2), 3)
-            crossover_rate = round(random.uniform(0.7, 0.99), 3)
+            # generations = random.choice([25, 50, 75])
+            mutation_rate = round(random.uniform(0.01, 0.1), 3)
+            # crossover_rate = round(random.uniform(0.9, 0.99), 3)
             tournament = random.randint(3, 10)
-            inicializacion = random.choice(["random", "greedy", "kmeans"])
+            inicializacion = random.choice(["random", "greedy"])
             
             combinations.append({
                 'algorithm_type': 'GENETIC',
-                'generations': generations,
+                # 'generations': generations,
                 'mutation_rate': mutation_rate,
-                'crossover_rate': crossover_rate,
+                # 'crossover_rate': crossover_rate,
                 'tournament': tournament,
                 'inicializacion': inicializacion,
                 'problem': 'P2'
@@ -688,14 +805,15 @@ def generate_tabu_param_combinations(search_type="grid", num_combinations=None):
     if search_type == "grid":
         tabu_tenures = [0.1, 0.2, 0.3, 0.4, 0.5]
         inicializaciones = ["random", "greedy", "kmeans"]
-        max_iters = [3, 5, 10]
-        gamma_fs = [0.2, 0.5, 0.8]
-        gamma_qs = [0.2, 0.5, 0.8]
+        time_limit = [10, 50, 100]
+        # max_iters = [3, 5, 10]
+        # gamma_fs = [0.2, 0.5, 0.8]
+        # gamma_qs = [0.2, 0.5, 0.8]
         
-        combinations = list(product(tabu_tenures, inicializaciones, max_iters, gamma_fs, gamma_qs))
+        combinations = list(product(tabu_tenures, inicializaciones, time_limit))
         
         return [{'algorithm_type': 'TABU', 'tabu_tenure': tt, 'inicializacion': init,
-                'max_iter': mi, 'gamma_f': gf, 'gamma_q': gq, 'time_limit': 100, 'problem': 'P2'} 
+                'max_iter': mi, 'gamma_f': gf, 'gamma_q': gq, 'time_limit': time_limit, 'problem': 'P2'} 
                 for tt, init, mi, gf, gq in combinations]
     
     elif search_type == "random":
@@ -706,111 +824,178 @@ def generate_tabu_param_combinations(search_type="grid", num_combinations=None):
         for _ in range(num_combinations):
             tabu_tenure = round(random.uniform(0.05, 0.6), 3)
             inicializacion = random.choice(["random", "greedy", "kmeans"])
-            max_iter = random.randint(3, 10)
-            gamma_f = round(random.uniform(0.5, 1.0), 3)
-            gamma_q = round(random.uniform(0.5, 1.0), 3)
+            time_limit = random.choice([10, 50, 100])
+            # max_iter = random.randint(3, 10)
+            # gamma_f = round(random.uniform(0.5, 1.0), 3)
+            # gamma_q = round(random.uniform(0.5, 1.0), 3)
             
             combinations.append({
                 'algorithm_type': 'TABU',
                 'tabu_tenure': tabu_tenure,
                 'inicializacion': inicializacion,
-                'max_iter': max_iter,
-                'gamma_f': gamma_f,
-                'gamma_q': gamma_q,
-                'time_limit': 100,
+                # 'max_iter': max_iter,
+                # 'gamma_f': gamma_f,
+                # 'gamma_q': gamma_q,
+                'time_limit': time_limit,
                 'problem': 'P2'
             })
         return combinations
     
     else:
         raise ValueError(f"Tipo de búsqueda desconocido: {search_type}")
+    
+def preprocess_grouped_df(df):
+    """
+    Convierte un DataFrame con MultiIndex en columnas (resultado de groupby + agg)
+    en uno plano con nombres esperados por generate_final_report.
+    """
+    # Aplanar MultiIndex
+    df = df.copy()
+    df.columns = ['_'.join(col).strip() if isinstance(col, tuple) else col for col in df.columns]
 
-def generate_final_report(results, result_dir, algorithm, mode):
-    """Genera un reporte final consolidado con las mejores métricas"""
+    # Renombrar columnas clave
+    rename_map = {
+        'cost_min': 'best_cost',
+        'cost_mean': 'mean_cost',
+        'cost_std': 'std_cost',
+        'gap_mean': 'best_gap',   # si solo tienes media de gap
+        'is_optimal_sum': 'optimal_solutions',
+        'time_mean': 'mean_time',
+        'time_sum': 'total_time'
+    }
+    df = df.rename(columns=rename_map)
+
+    return df.reset_index()
+
+
+def generate_final_report(df, result_dir, algorithm, mode): 
+    """Genera un reporte final consolidado con las mejores métricas""" 
+    if df.empty: 
+        return 
     
-    if not results:
-        return
+    df = preprocess_grouped_df(df)
+    # print(df.columns)
     
-    df = pd.DataFrame(results)
-    
-    # Reporte general
-    report_lines = [
-        f"=== REPORTE FINAL - {algorithm.upper()} ({mode.upper()}) ===\n",
-        f"Fecha: {time.strftime('%Y-%m-%d %H:%M:%S')}",
-        f"Total de configuraciones: {len(df)}",
-        f"Instancias procesadas: {df['instance'].nunique() if 'instance' in df.columns else 'N/A'}",
-        ""
-    ]
-    
-    if mode == 'committee':
-        # Estadísticas de comités
-        if 'best_cost' in df.columns:
-            report_lines.extend([
-                "=== ESTADÍSTICAS GENERALES ===",
-                f"Mejor costo global: {df['best_cost'].min():.4f}",
-                f"Costo promedio: {df['best_cost'].mean():.4f}",
-                f"Desviación estándar: {df['best_cost'].std():.4f}",
-                ""
-            ])
-        
-        if 'best_gap' in df.columns and df['best_gap'].notna().any():
-            valid_gaps = df[df['best_gap'].notna()]['best_gap']
-            report_lines.extend([
-                "=== ANÁLISIS DE GAP ===",
-                f"Mejor GAP: {valid_gaps.min():.4f}%",
-                f"GAP promedio: {valid_gaps.mean():.4f}%",
-                f"GAP mediano: {valid_gaps.median():.4f}%",
-                ""
-            ])
-        
-        if 'optimal_solutions' in df.columns:
-            total_optimal = df['optimal_solutions'].sum()
-            total_runs = df['num_runs'].sum() if 'num_runs' in df.columns else len(df)
-            report_lines.extend([
-                "=== ANÁLISIS DE OPTIMALIDAD ===",
-                f"Soluciones óptimas encontradas: {total_optimal}",
-                f"Total de ejecuciones: {total_runs}",
-                f"Tasa de éxito: {(total_optimal/total_runs*100):.2f}%",
-                ""
-            ])
-    
-    elif mode == 'hyperparameters':
-        # Estadísticas de hiperparámetros
-        if 'best_cost' in df.columns:
-            best_config = df.loc[df['best_cost'].idxmin()]
+    # Reporte general 
+    report_lines = [ 
+        f"=== REPORTE FINAL - {algorithm.upper()} ({mode.upper()}) ===\n", 
+        f"Fecha: {time.strftime('%Y-%m-%d %H:%M:%S')}", 
+        f"Total de configuraciones: {len(df)}"
+        "" 
+    ] 
+    if mode == 'committee': 
+        # Estadísticas de comités 
+        if 'best_cost' in df.columns: 
+            report_lines.extend([ 
+                "=== ESTADÍSTICAS GENERALES ===", 
+                f"Mejor costo global: {df['best_cost'].min():.4f}", 
+                f"Costo promedio: {df['best_cost'].mean():.4f}", 
+                f"Desviación estándar: {df['best_cost'].std():.4f}", 
+                "" 
+            ]) 
+        if 'best_gap' in df.columns and df['best_gap'].notna().any(): 
+            valid_gaps = df[df['best_gap'].notna()]['best_gap'] 
+            report_lines.extend([ 
+                "=== ANÁLISIS DE GAP ===", 
+                f"Mejor GAP: {valid_gaps.min():.4f}%", 
+                f"GAP promedio: {valid_gaps.mean():.4f}%", 
+                f"GAP mediano: {valid_gaps.median():.4f}%", 
+                "" 
+            ]) 
+        if 'optimal_solutions' in df.columns: 
+            total_optimal = df['optimal_solutions'].sum() 
+            total_runs = df['num_runs'].sum() if 'num_runs' in df.columns else len(df) 
+            report_lines.extend([ 
+                "=== ANÁLISIS DE OPTIMALIDAD ===", 
+                f"Soluciones óptimas encontradas: {total_optimal}", 
+                f"Total de ejecuciones: {total_runs}", 
+                f"Tasa de éxito: {(total_optimal/total_runs*100):.2f}%", 
+                "" 
+            ]) 
+    elif mode == 'hyperparameters': 
+        print(df)
+        print(df.columns)
+        # Estadísticas de hiperparámetros 
+        if 'optimal_solutions' in df.columns: 
+            # Filtrar configuraciones con best_gap > 0
+            non_zero_opt = df[df['optimal_solutions'] > 0]
+
+            if len(non_zero_opt) > 0:
+                # Encontrar el mínimo gap no cero
+                min_gap = non_zero_opt['optimal_solutions'].min()
+                
+                # Obtener todas las configuraciones con ese gap mínimo
+                min_gap_configs = non_zero_opt[non_zero_opt['optimal_solutions'] == min_gap]
+                
+                # Si hay más de una configuración con el mismo gap mínimo, desempatar por mean_gap
+                if len(min_gap_configs) > 1:
+                    if 'best_gap' in df.columns:
+                        # Filtrar configuraciones con best_gap > 0
+                        non_zero_gaps = df[df['best_gap'] > 0]
+
+                        if len(non_zero_gaps) > 0:
+                            # Encontrar el mínimo gap no cero
+                            min_gap = non_zero_gaps['best_gap'].min()
+                            
+                            # Obtener todas las configuraciones con ese gap mínimo
+                            min_gap_configs = non_zero_gaps[non_zero_gaps['best_gap'] == min_gap]
+                            
+                            # Si hay más de una configuración con el mismo gap mínimo, desempatar por mean_gap
+                            if len(min_gap_configs) > 1:
+                                # Encontrar la configuración con el menor mean_gap entre los empatados
+                                best_config = min_gap_configs.loc[min_gap_configs['std_cost'].idxmin()]
+                            else:
+                                best_config = min_gap_configs.iloc[0]
+                else:
+                    best_config = min_gap_configs.iloc[0]
+            else:
+                # Si todos los gaps son 0, tomar la configuración con mejor mean_gap
+                best_config = df.loc[df['best_gap'].idxmin()]
+            report_lines.extend([ 
+                "=== MEJOR CONFIGURACIÓN ENCONTRADA ===", 
+                f"Gap: {best_config['best_gap']:.4f}"
+            ]) 
             
-            report_lines.extend([
-                "=== MEJOR CONFIGURACIÓN ENCONTRADA ===",
-                f"Costo: {best_config['best_cost']:.4f}",
-                f"Instancia: {best_config.get('instance_name', best_config.get('instance', 'N/A'))}",
-            ])
-            
-            # Añadir parámetros específicos
-            param_cols = [col for col in df.columns if col not in 
-                         ['instance', 'instance_name', 'algorithm', 'best_cost', 'mean_cost', 'std_cost']]
-            
-            for param in param_cols[:10]:  # Limitar a 10 parámetros principales
-                if param in best_config:
-                    report_lines.append(f"{param}: {best_config[param]}")
-            
-            report_lines.append("")
-        
-        # Top 5 configuraciones
+            # Añadir parámetros específicos 
+            param_cols = [col for col in df.columns if col not in ['instance', 'instance_name', 'algorithm', 'best_cost', 'mean_cost', 'std_cost']] 
+            for param in param_cols[:10]: 
+                # Limitar a 10 parámetros principales 
+                if param in best_config: 
+                    report_lines.append(f"{param}: {best_config[param]}") 
+            report_lines.append("") 
+        # Top 5 configuraciones 
         if len(df) >= 5:
-            top5 = df.nsmallest(5, 'best_cost')
+            # Filtrar configuraciones con optimal_solutions > 0
+            non_zero_optimal = df[df['optimal_solutions'] > 0]
+            
+            if len(non_zero_optimal) >= 5:
+                # Si hay al menos 5 con optimal_solutions > 0, tomar las top 5
+                top5 = non_zero_optimal.nsmallest(5, 'optimal_solutions')
+        elif len(non_zero_optimal) > 0:
+            # Si hay algunas con optimal_solutions > 0 pero menos de 5, completar con las mejores por best_gap
+            remaining_slots = 5 - len(non_zero_optimal)
+            top_non_zero = non_zero_optimal.nsmallest(len(non_zero_optimal), 'optimal_solutions')
+            
+            # Obtener las mejores por best_gap de las que no tienen optimal_solutions > 0
+            zero_optimal = df[df['optimal_solutions'] == 0]
+            if len(zero_optimal) > 0:
+                top_by_gap = zero_optimal.nsmallest(remaining_slots, 'best_gap')
+                top5 = pd.concat([top_non_zero, top_by_gap])
+            else:
+                top5 = top_non_zero
+        else:
+            # Si no hay ninguna con optimal_solutions > 0, usar best_gap
+            top5 = df.nsmallest(5, 'best_gap')
+        
             report_lines.extend([
                 "=== TOP 5 CONFIGURACIONES ===",
-                *[f"{i+1}. Costo: {row['best_cost']:.4f} - Instancia: {row.get('instance_name', row.get('instance', 'N/A'))}" 
-                  for i, (_, row) in enumerate(top5.iterrows())],
+                *[f"{i+1}. Óptimas: {row['optimal_solutions']} - Costo: {row['best_cost']:.4f} - GAP: {row.get('best_gap', 'N/A'):.4f}% - Instancia: {row.get('instance_name', row.get('instance', 'N/A'))}" for i, (_, row) in enumerate(top5.iterrows())],
                 ""
             ])
-    else:
-        return
-    
-    # Guardar reporte
-    report_path = os.path.join(result_dir, "REPORTE_FINAL.txt")
-    with open(report_path, 'w', encoding='utf-8') as f:
-        f.write('\n'.join(report_lines))
-    
-    print(f"\nReporte final guardado en: {report_path}")
-    print("\n" + "\n".join(report_lines[:15]) + "...")  # Mostrar primeras líneas
+        # Guardar reporte 
+        report_path = os.path.join(result_dir, "REPORTE_FINAL.txt") 
+        with open(report_path, 'w', encoding='utf-8') as f: 
+            f.write('\n'.join(report_lines)) 
+            print(f"\nReporte final guardado en: {report_path}") 
+            print("\n" + "\n".join(report_lines[:15]) + "...") 
+            # Mostrar primeras líneas

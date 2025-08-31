@@ -15,7 +15,7 @@ from structure.create_instances import create_params
 
 CONFIG = {
     'testing': True,
-    'n_nodos': ["n_10", "n_50", "n_100"], # Un listado, las opciones son ["n_10", "n_50", "n_100"]
+    'n_nodos': ["n_100"], # Un listado, las opciones son ["n_10", "n_50", "n_100"]
     'save_results': True,
     'problem': 'P2', # Puede ser 'P1' o 'P2'
     'algorithm': 'GENETIC',  # Puede ser 'GRASP' o 'MILP' o 'TABU' o 'GENETIC'
@@ -26,18 +26,18 @@ CONFIG = {
     'alpha': 0.65,  # Parámetro de aleatoriedad para GREEDY
     'frac_neighbors': 3,  # Fracción a dividir el total de clientes para obtener el número de vecinos a generar por iteración
     'tabu_tenure': 0.35,  # Tenencia para el algoritmo Tabu
-    'tournament': 5,
+    'tournament': 2,
     'gamma_f': 0.5,
     'gamma_q': 0.5,
-    'time_limit': 100,  # Límite de tiempo en segundos para la resolución del MILP
-    'max_iter': 20,  # Máximo número de iteraciones para el algoritmo Tabu
+    'time_limit': 50,  # Límite de tiempo en segundos para la resolución del MILP
+    'max_iter': 50,  # Máximo número de iteraciones para el algoritmo Tabu
     'num_runs': 2,
-    'num_processes': 4
+    'num_processes': 16
 }
 
 def setup_logger(log_file_path):
     """
-    Configura un logger para escribir mensajes en un archivo y en la consola.
+    configura un logger para escribir mensajes en un archivo y en la consola.
     """
     logger = logging.getLogger('CEFLP_Logger')
     logger.setLevel(logging.INFO) # Establece el nivel mínimo de mensajes a registrar
@@ -93,7 +93,7 @@ def load_instances(subfolders, testing: bool = False)->list:
     return instances
 
 # def get_instance_paths(config):
-#     """Devuelve una lista de rutas de instancias en base a CONFIG."""
+#     """Devuelve una lista de rutas de instancias en base a config."""
 #     base_dir = "data/testing_set" if config["testing"] else "data/training_set"
 #     instance_paths = []
 
@@ -233,30 +233,30 @@ def load_instances(subfolders, testing: bool = False)->list:
 #         instance_logger.error(f"Error procesando instancia {instance_name}: {e}")
 #         return f"Error en instancia {instance_name}: {e}"
     
-def main():
+def main(config: dict):
     global_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-    testing = CONFIG.get('testing', False)
-    n_nodos = CONFIG.get('n_nodos', ['n_10', 'n_50', 'n_100'])
-    mode = CONFIG.get('mode', 'single')
-    algorithm = CONFIG.get('algorithm', 'tabu')
-    problem = CONFIG.get('problem', 'P2')
-    num_runs = CONFIG.get('num_runs', 4)
-    num_processes = CONFIG.get('num_processes', None)
+    testing = config.get('testing', False)
+    n_nodos = config.get('n_nodos', ['n_10', 'n_50', 'n_100'])
+    mode = config.get('mode', 'single')
+    algorithm = config.get('algorithm', 'tabu')
+    problem = config.get('problem', 'P2')
+    num_runs = config.get('num_runs', 4)
+    num_processes = config.get('num_processes', None)
     result_dir = f"output/{problem}/{algorithm}"
 
     # Obtener las instancias según sea test o train
     instances = load_instances(subfolders=n_nodos, testing=testing)
 
     if mode == 'committee':
-        result_base_dir = f"{result_dir}/comittee"
+        result_base_dir = f"{result_dir}/comittee/{global_timestamp}"
         # Ejecutar comités con parámetros por defecto
         if algorithm == 'GRASP':
             # Parámetros por defecto para GRASP
             algorithm_params = []
-            alpha = CONFIG.get('alpha', 0.3)
-            frac_neighbors = CONFIG.get('frac_neighbors', 4)
-            max_iter = CONFIG.get('max_iter', 20)
+            alpha = config.get('alpha', 0.3)
+            frac_neighbors = config.get('frac_neighbors', 4)
+            max_iter = config.get('max_iter', 20)
             for i, instance in enumerate(instances):
                 instance_name = instance[0]
                 path = instance[1]
@@ -273,9 +273,9 @@ def main():
         elif algorithm == 'GENETIC':
             # Parámetros por defecto para Genetic
             algorithm_params = []
-            inicialization = CONFIG.get('inicialization', 'random')
-            generations = CONFIG.get('max_iter', 20)
-            tournament = CONFIG.get('tournament', 5)
+            inicialization = config.get('inicialization', 'random')
+            generations = config.get('max_iter', 20)
+            tournament = config.get('tournament', 5)
             for i, instance in enumerate(instances):
                 instance_name = instance[0]
                 path = instance[1]
@@ -294,12 +294,12 @@ def main():
         elif algorithm == 'TABU':
             # Parámetros por defecto para Tabu
             algorithm_params = []
-            max_iter = CONFIG.get('max_iter', 20)
-            tabu_tenure = CONFIG.get('tabu_tenure', 0.25)
-            inicialization = CONFIG.get('inicialization', 'random')
-            time_limit = CONFIG.get('time_limit')
-            gamma_f = CONFIG.get('gamma_f', 0.5)
-            gamma_q = CONFIG.get('gamma_q', 0.5)
+            max_iter = config.get('max_iter', 20)
+            tabu_tenure = config.get('tabu_tenure', 0.25)
+            inicialization = config.get('inicialization', 'random')
+            time_limit = config.get('time_limit')
+            gamma_f = config.get('gamma_f', 0.5)
+            gamma_q = config.get('gamma_q', 0.5)
             for i, instance in enumerate(instances):
                 instance_name = instance[0]
                 path = instance[1]
@@ -318,13 +318,13 @@ def main():
         
         # Ejecutar comités
         results = run_committee_multiple_instances(
-            algorithm_params, instances, result_base_dir,
+            algorithm_params, instances, n_nodos[0], result_base_dir,
             algorithm, num_runs, num_processes
         )
         
     elif mode == 'hyperparameters':
-        search_type = CONFIG.get('type_search', 'grid')
-        result_base_dir = f"{result_dir}/hyperparameters/{search_type}"
+        search_type = config.get('type_search', 'grid')
+        result_base_dir = f"{result_dir}/hyperparameters/{search_type}/{global_timestamp}"
         # Búsqueda de hiperparámetros
         if algorithm == 'GRASP':
             param_combinations = generate_grasp_param_combinations(search_type)
@@ -337,18 +337,18 @@ def main():
         
         # Ejecutar búsqueda de hiperparámetros
         results = run_hyperparameter_search_multiple_instances(
-            algorithm, param_combinations, instances,
+            algorithm, param_combinations, instances, n_nodos[0],
             result_base_dir, num_runs, num_processes
         )
     
     else:
-        result_base_dir = f"{result_dir}/single"
+        result_base_dir = f"{result_dir}/single/{global_timestamp}"
         if algorithm == 'GRASP':
             # Parámetros por defecto para GRASP
             algorithm_params = []
-            alpha = CONFIG.get('alpha', 0.3)
-            frac_neighbors = CONFIG.get('frac_neighbors', 4)
-            max_iter = CONFIG.get('max_iter', 20)
+            alpha = config.get('alpha', 0.3)
+            frac_neighbors = config.get('frac_neighbors', 4)
+            max_iter = config.get('max_iter', 20)
             for i, instance in enumerate(instances):
                 instance_name = instance[0]
                 path = instance[1]
@@ -373,9 +373,9 @@ def main():
         elif algorithm == 'GENETIC':
             # Parámetros por defecto para Genetic
             algorithm_params = []
-            inicialization = CONFIG.get('inicialization', 'random')
-            generations = CONFIG.get('max_iter', 20)
-            tournament = CONFIG.get('tournament', 5)
+            inicialization = config.get('inicialization', 'random')
+            generations = config.get('max_iter', 20)
+            tournament = config.get('tournament', 5)
             for i, instance in enumerate(instances):
                 instance_name = instance[0]
                 path = instance[1]
@@ -401,12 +401,12 @@ def main():
         elif algorithm == 'TABU':
             # Parámetros por defecto para Tabu
             algorithm_params = []
-            max_iter = CONFIG.get('max_iter', 20)
-            tabu_tenure = CONFIG.get('tabu_tenure', 0.25)
-            inicialization = CONFIG.get('inicialization', 'random')
-            time_limit = CONFIG.get('time_limit')
-            gamma_f = CONFIG.get('gamma_f', 0.5)
-            gamma_q = CONFIG.get('gamma_q', 0.5)
+            max_iter = config.get('max_iter', 20)
+            tabu_tenure = config.get('tabu_tenure', 0.25)
+            inicialization = config.get('inicialization', 'random')
+            time_limit = config.get('time_limit')
+            gamma_f = config.get('gamma_f', 0.5)
+            gamma_q = config.get('gamma_q', 0.5)
             for i, instance in enumerate(instances):
                 instance_name = instance[0]
                 path = instance[1]
@@ -441,7 +441,7 @@ def main():
 
 # --- Bloque principal para la ejecución paralela ---
 if __name__ == "__main__":
-    main()
+    main(CONFIG)
     # if hiperparam_search or comitee:
     #     # Ejecución secuencial
     #     print(f"Ejecutando en modo {'Hiperparámetros' if hiperparam_search else 'Comité'} "
@@ -455,7 +455,7 @@ if __name__ == "__main__":
     #     print("Ejecutando en modo Estándar (paralelizado a nivel de instancia).")
     #     num_processes = multiprocessing.cpu_count()
     #     print(f"Iniciando la ejecución paralela en {num_processes} procesos...")
-    #     print(f"Configuración global del algoritmo: {CONFIG['algorithm']}")
+    #     print(f"configuración global del algoritmo: {config['algorithm']}")
 
     #     # Adaptar tasks para incluir timestamp
     #     tasks = [(i, global_timestamp, config, path) for (i, path, config) in instance]
@@ -484,8 +484,8 @@ if __name__ == "__main__":
 #             output_dir: Directorio de salida base
 #         """
         
-#         # Configurar logging
-#         logging.basicConfig(
+#         # configurar logging
+#         logging.basicconfig(
 #             level=logging.INFO,
 #             format='%(asctime)s - %(levelname)s - %(message)s'
 #         )

@@ -23,7 +23,7 @@ class GeneticSearch:
                  logger, 
                  inicializacion: str = "random",
                  generations: int = 500,
-                 tournament: int = 10,
+                 tournament: int = 2,
                  mutation_rate: float = 0.05,
                  crossover_rate: float = 0.95,
                  problem: str = "P2"
@@ -95,6 +95,7 @@ class GeneticSearch:
             self._evolve_population(fitnesses)
         
         solve_time = time.time() - start_time
+        self.best_individual.time = solve_time
         
         if self.best_individual is None:
             self.logger.warning("Error: No se encontró ninguna solución válida después de todas las iteraciones.")

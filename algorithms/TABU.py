@@ -9,7 +9,7 @@ import numpy as np
 from structure.solution import Solution
     
 class TabuSearch:
-    def __init__(self, params, inicializacion, instance, result_dir, logger: logging, problem: str = "P2", time_limit=100, tabu_tenure=0.25, max_iter_without_improvement: int = 10, gamma_f: float = 0.5, gamma_q: float = 0.5):
+    def __init__(self, params, inicializacion, instance, result_dir, logger: logging, problem: str = "P2", time_limit=100, tabu_tenure=0.25, max_iter_without_improvement: int = 10, gamma_f: float = 0.75, gamma_q: float = 0.5):
 
         self.I = params['I']
         self.J = params['J']
@@ -103,6 +103,7 @@ class TabuSearch:
                 stagnation_counter = 0
 
         solve_time = time.time() - start_time
+        self.best_solution.time = solve_time
         self.max_iter = iteration
         if self.best_solution is None:
             self.logger.warning("No se encontró solución válida")
