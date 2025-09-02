@@ -178,9 +178,9 @@ def optimize_solver_settings(optimizer="CBC", time_limit=None, gap_rel=0.01):
         if time_limit:
             options.extend(['--tmlim', str(time_limit)])
         solver = pulp.GLPK_CMD(
+            path="/usr/bin/glpsol",
             msg=True,
-            options=options,
-            timeLimit=time_limit
+            options=options
         )
     elif optimizer == "CPLEX":
         solver = pulp.CPLEX_CMD(
@@ -354,6 +354,7 @@ def milp_ceflp(params, instance, n_nodos, result_dir, logger, problem_type="P1",
     
     if optimal_solution:
         log_dir = os.path.join(result_dir, n_nodos)
+        os.makedirs(log_dir, exist_ok=True)
     else:
         log_dir = result_dir
     
@@ -421,7 +422,7 @@ def milp_ceflp(params, instance, n_nodos, result_dir, logger, problem_type="P1",
     
     # Configurar solver optimizado
     if optimizer == "CBC":
-        log_path = f"i{instance}_cbc.log"
+        log_path = f"{instance}_cbc.log"
         solver = pulp.PULP_CBC_CMD(
             msg=True, 
             timeLimit=time_limit, 
@@ -439,13 +440,14 @@ def milp_ceflp(params, instance, n_nodos, result_dir, logger, problem_type="P1",
             ]
         )
     elif optimizer == "GLPK":
-        log_path = f"i{instance}_glpk.log"
+        log_path = f"{instance}_glpk.log"
+        os.makedirs(log_dir, exist_ok=True)
         options = ['--log', os.path.join(log_dir, log_path), '--cuts']
         if time_limit:
             options.extend(['--tmlim', str(time_limit)])
         solver = pulp.GLPK_CMD(msg=True, options=options)
     elif optimizer == "CPLEX":
-        log_path = f"i{instance}_cplex.log"
+        log_path = f"{instance}_cplex.log"
         solver = pulp.CPLEX_CMD(
             path="/home/andrea/Documentos/Close-Enough-Facility-Location/cplex/bin/x86-64_linux/cplex",
             msg=True,
@@ -455,7 +457,7 @@ def milp_ceflp(params, instance, n_nodos, result_dir, logger, problem_type="P1",
         )
     else:
         logger.warning(f"Optimizer {optimizer} not recognized. Using default CBC solver.")
-        log_path = f"i{instance}_cbc.log"
+        log_path = f"{instance}_cbc.log"
         solver = pulp.PULP_CBC_CMD(
             msg=True, 
             timeLimit=time_limit, 
@@ -494,7 +496,7 @@ def milp_ceflp(params, instance, n_nodos, result_dir, logger, problem_type="P1",
         else:
             objective_value = "Infeasible"
         
-        key = f"i{instance}"
+        key = f"{instance}"
         results_dict[key] = objective_value
         
         with open(filepath, 'w') as f:
@@ -504,7 +506,7 @@ def milp_ceflp(params, instance, n_nodos, result_dir, logger, problem_type="P1",
     
     else:
         # Guardar resultados detallados
-        filename = f"i{instance}_{problem_type}_result.txt"
+        filename = f"{instance}_{problem_type}_result.txt"
         filepath = os.path.join(result_dir, filename)
         
         with open(filepath, "w", encoding="utf-8") as f:

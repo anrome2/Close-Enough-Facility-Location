@@ -47,6 +47,7 @@ class GeneticSearch:
         self.instance = instance
         self.problem = problem
         self.logger = logger
+        self.time_limit = 1000
         
         # Parámetros del GA
         self.inicialization = inicializacion
@@ -70,9 +71,17 @@ class GeneticSearch:
         start_time = time.time()
         # Crear población inicial
         self._create_population()
-        best_fitness = float('inf')
+        fitnesses = [ind.evaluate() for ind in self.population]
+        best_idx = np.argmin(fitnesses)
+        best_fitness = fitnesses[best_idx]
+
+        self.best_individual = Solution(self)
+        self.best_individual._clone_solution(self.population[best_idx])
+
         
-        for generation in range(self.generations):
+        generation = 0
+
+        while generation < self.generations and (time.time() - start_time) < self.time_limit:
             # Evaluar toda la población
             try:
                 fitnesses = [ind.evaluate() for ind in self.population]
@@ -93,6 +102,10 @@ class GeneticSearch:
             
             # Evolucionar población
             self._evolve_population(fitnesses)
+            
+            # Avanzar contador de generación
+            generation += 1
+
         
         solve_time = time.time() - start_time
         self.best_individual.time = solve_time

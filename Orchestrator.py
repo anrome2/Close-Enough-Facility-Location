@@ -290,7 +290,9 @@ def run_single_genetic_execution_improved(args):
     
     logger = logging.getLogger(f'genetic_worker_{os.getpid()}_{run_idx}')
     logger.setLevel(logging.WARNING)
-    
+    # print("Inicialización ", inicializacion)
+    # print("Mutation rate ", mutation_rate)
+    # print("Tournament ", tournament)
     try:
         genetic = GeneticSearch(
             params=params,
@@ -765,14 +767,14 @@ def generate_genetic_param_combinations(search_type="grid", num_combinations=Non
         # generations_list = [50, 75]
         mutation_rates = [0.05, 0.1]
         # crossover_rates = [0.9, 0.95, 0.99]
-        tournaments = [3, 5]
+        tournaments = [3, 4, 5]
         inicializaciones = ["random", "greedy"]
         
         combinations = list(product(tournaments, mutation_rates, inicializaciones))
         
-        return [{'algorithm_type': 'GENETIC', 'generations': g, 'mutation_rate': mr, 
-                'crossover_rate': cr, 'tournament': t, 'inicializacion': init, 'problem': 'P2'} 
-                for g, mr, cr, t, init in combinations]
+        return [{'algorithm_type': 'GENETIC', 'mutation_rate': mr, 
+                'tournament': t, 'inicializacion': init, 'problem': 'P2'} 
+                for t, mr, init in combinations]
     
     elif search_type == "random":
         if num_combinations is None:
@@ -803,9 +805,9 @@ def generate_genetic_param_combinations(search_type="grid", num_combinations=Non
 def generate_tabu_param_combinations(search_type="grid", num_combinations=None):
     """Genera combinaciones de parámetros para Tabu Search"""
     if search_type == "grid":
-        tabu_tenures = [0.1, 0.2, 0.3, 0.4, 0.5]
+        tabu_tenures = [0.25, 0.5]
         inicializaciones = ["random", "greedy", "kmeans"]
-        time_limit = [10, 50, 100]
+        time_limit = [50, 120]
         # max_iters = [3, 5, 10]
         # gamma_fs = [0.2, 0.5, 0.8]
         # gamma_qs = [0.2, 0.5, 0.8]
@@ -813,8 +815,8 @@ def generate_tabu_param_combinations(search_type="grid", num_combinations=None):
         combinations = list(product(tabu_tenures, inicializaciones, time_limit))
         
         return [{'algorithm_type': 'TABU', 'tabu_tenure': tt, 'inicializacion': init,
-                'max_iter': mi, 'gamma_f': gf, 'gamma_q': gq, 'time_limit': time_limit, 'problem': 'P2'} 
-                for tt, init, mi, gf, gq in combinations]
+                 'time_limit': time_limit, 'problem': 'P2'} 
+                for tt, init, time_limit in combinations]
     
     elif search_type == "random":
         if num_combinations is None:

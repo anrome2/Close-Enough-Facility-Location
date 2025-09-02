@@ -43,7 +43,7 @@ def setup_logger(log_file_path):
     logger.setLevel(logging.INFO) # Establece el nivel mínimo de mensajes a registrar
 
     # Crea un handler para escribir en un archivo
-    file_handler = logging.FileHandler(log_file_path)
+    file_handler = logging.FileHandler(log_file_path, mode="w")
     file_handler.setLevel(logging.INFO) # Nivel de mensajes para el archivo
 
     # Crea un handler para imprimir en la consola

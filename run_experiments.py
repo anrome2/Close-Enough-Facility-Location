@@ -10,7 +10,7 @@ BASE_CONFIG = {
     'optimization_solver': 'CPLEX',
     'inicialization': 'random',
     'mode': 'hyperparameters',
-    'type_search': 'random',
+    'type_search': 'grid',
     'alpha': 0.65,
     'frac_neighbors': 3,
     'tabu_tenure': 0.35,
@@ -28,7 +28,7 @@ def run_experiments():
     nodos = ["n_10", "n_50", "n_100"]
 
     # Orden de algoritmos
-    algoritmos = ["TABU"]
+    algoritmos = ["GENETIC"]
 
     for algoritmo in algoritmos:
         for nodo in nodos:
@@ -40,10 +40,10 @@ def run_experiments():
             config['n_nodos'] = [nodo]
 
             # Ajustar procesos según nodo
-            # if nodo in ["n_10", "n_50"]:
-            #     config['num_processes'] = 16
-            # else:  # n_100
-            #     config['num_processes'] = 8
+            if nodo in ["n_10"]:
+                config['num_processes'] = 16
+            else:  # n_100
+                config['num_processes'] = 8
 
             print(f"\n=== Ejecutando {algoritmo} con {nodo} usando {config['num_processes']} hilos ===")
             main(config)
