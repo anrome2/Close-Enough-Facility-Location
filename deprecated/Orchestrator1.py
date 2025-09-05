@@ -38,7 +38,7 @@ def calculate_gap(primal_cost, optimal_cost):
     """Calcula el GAP de optimalidad"""
     if optimal_cost is None or primal_cost <= 0:
         return None
-    gap = (primal_cost - optimal_cost) / primal_cost
+    gap = abs((primal_cost - optimal_cost) / primal_cost)
     return max(0, gap)
 
 def analyze_results(costs, optimal_cost=None):

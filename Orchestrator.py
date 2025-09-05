@@ -38,7 +38,7 @@ def get_combo_columns(algorithm_type):
     algo_params = {
         'tabu': ['tabu_tenure', 'inicializacion', 'time_limit'],
         'genetic': ['mutation_rate', 'tournament', 'inicializacion'],
-        'grasp': ['alpha'],
+        'grasp': ['alpha', 'frac_neighbors', 'max_iter'],
         # puedes añadir más algoritmos aquí...
     }
     params = algo_params.get(algorithm_type.lower(), [])
@@ -53,7 +53,7 @@ def calculate_gap(primal_cost, optimal_cost):
         return None
     # print(primal_cost)
     # print("OPTIMAL ", optimal_cost)
-    gap = (primal_cost - optimal_cost) / primal_cost
+    gap = abs((primal_cost - optimal_cost) / primal_cost)
     return max(0, gap)  # GAP no puede ser negativo
 
 def analyze_results(costs, optimal_cost=None):
@@ -230,8 +230,9 @@ def run_single_grasp_execution_improved(args):
             problem=problem,
             max_iter=max_iter
         )
+        start_time = time.time()
         grasp.run()
-        
+        print(f"Ha tardado {time.time()-start_time}")
         return {
             'algorithm_type': 'GRASP',
             'instance': instance,
@@ -241,6 +242,7 @@ def run_single_grasp_execution_improved(args):
             'cost': round(grasp.best_solution.cost, 2),
             'time': grasp.best_solution.time,
             # 'solution': deepcopy(grasp.best_solution),
+            'max_iter': max_iter,
             'alpha': alpha,
             'frac_neighbors': frac_neighbors,
             'success': True
@@ -256,6 +258,7 @@ def run_single_grasp_execution_improved(args):
             'cost': float('inf'),
             'time': 0,
             # 'solution': None,
+            'max_iter': max_iter,
             'alpha': alpha,
             'frac_neighbors': frac_neighbors,
             'success': False,
@@ -714,6 +717,7 @@ def run_hyperparameter_search_multiple_instances(algorithm_name, param_combinati
     columns_names = get_combo_columns(algorithm_type=algorithm_name)
     # Agrupar por nº de nodos
     columns_names.append('n_nodes')
+    print(df_all.columns)
     stats_by_nnodes = df_all.groupby(columns_names).agg({
         'cost': ['mean', 'std', 'min', 'max'],
         'time': ['mean', 'sum'],
@@ -736,25 +740,27 @@ def generate_grasp_param_combinations(search_type="grid", num_combinations=None)
     if search_type == "grid":
         alphas = [0.1, 0.3, 0.5, 0.7]
         frac_neighbors_list = [2, 4, 6]
-        combinations = list(product(alphas, frac_neighbors_list))
+        max_iter = [20]
+        combinations = list(product(alphas, frac_neighbors_list, max_iter))
         
-        return [{'algorithm_type': 'GRASP', 'alpha': a, 'frac_neighbors': fn, 'problem': 'P2', 'max_iter': None} 
-                for a, fn in combinations]
+        return [{'algorithm_type': 'GRASP', 'alpha': a, 'frac_neighbors': fn, 'problem': 'P2', 'max_iter': mi} 
+                for a, fn, mi in combinations]
     
     elif search_type == "random":
         if num_combinations is None:
-            num_combinations = 10
+            num_combinations = 5
         
         combinations = []
         for _ in range(num_combinations):
             alpha = round(random.uniform(0.05, 0.95), 3)
-            frac_neighbors = random.randint(2, 8)
+            frac_neighbors = random.randint(2, 6)
+            max_iter = random.choice([10, 25, 50])
             combinations.append({
                 'algorithm_type': 'GRASP',
                 'alpha': alpha,
                 'frac_neighbors': frac_neighbors,
                 'problem': 'P2',
-                'max_iter': None
+                'max_iter': max_iter
             })
         return combinations
     

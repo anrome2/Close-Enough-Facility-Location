@@ -5,8 +5,9 @@ import os
 from datetime import datetime
 import time
 
-from Comittee_agent import run_genetic_committee, run_genetic_once, run_grasp_committee, run_grasp_hyperparam_search, run_grasp_once, run_tabu_committee, run_tabu_hyperparam_search, run_tabu_once
+from deprecated.Comittee_agent import run_genetic_committee, run_genetic_once, run_grasp_committee, run_grasp_hyperparam_search, run_grasp_once, run_tabu_committee, run_tabu_hyperparam_search, run_tabu_once
 from Orchestrator import generate_final_report, generate_genetic_param_combinations, generate_grasp_param_combinations, generate_tabu_param_combinations, run_committee_multiple_instances, run_hyperparameter_search_multiple_instances, run_single_genetic_execution_improved, run_single_grasp_execution_improved, run_single_tabu_execution_improved
+from run_experiments.SingleInstances import run_fixed_parameters_multiple_instances
 from algorithms.MILP import milp_ceflp as MILP
 from structure.create_instances import create_params
 
@@ -14,24 +15,24 @@ from structure.create_instances import create_params
 # source venv_ceflp/bin/activate
 
 CONFIG = {
-    'testing': True,
-    'n_nodos': ["n_100"], # Un listado, las opciones son ["n_10", "n_50", "n_100"]
+    'testing': False,
+    'n_nodos': ["n_10", "n_50", "n_100"], # Un listado, las opciones son ["n_10", "n_50", "n_100"]
     'save_results': True,
     'problem': 'P2', # Puede ser 'P1' o 'P2'
-    'algorithm': 'GENETIC',  # Puede ser 'GRASP' o 'MILP' o 'TABU' o 'GENETIC'
+    'algorithm': 'GRASP',  # Puede ser 'GRASP' o 'MILP' o 'TABU' o 'GENETIC'
     'optimization_solver': 'CPLEX',  # Puede ser 'CBC', 'GLPK' o 'CPLEX'
     'inicialization': 'random',  # Puede ser 'random', 'kmeans' o 'greedy'
-    'mode': 'hyperparameters', # Puede ser 'comitee', 'hyperparam' o 'single'
+    'mode': 'single', # Puede ser 'comitee', 'hyperparameters' o 'single'
     'type_search': 'random',  # Tipo de búsqueda de hiperparámetros, puede ser 'grid', 'random' o 'bayesian'
-    'alpha': 0.65,  # Parámetro de aleatoriedad para GREEDY
-    'frac_neighbors': 3,  # Fracción a dividir el total de clientes para obtener el número de vecinos a generar por iteración
+    'alpha': 0.7,  # Parámetro de aleatoriedad para GREEDY
+    'frac_neighbors': 6,  # Fracción a dividir el total de clientes para obtener el número de vecinos a generar por iteración
     'tabu_tenure': 0.35,  # Tenencia para el algoritmo Tabu
     'tournament': 2,
     'gamma_f': 0.5,
     'gamma_q': 0.5,
     'time_limit': 50,  # Límite de tiempo en segundos para la resolución del MILP
-    'max_iter': 50,  # Máximo número de iteraciones para el algoritmo Tabu
-    'num_runs': 2,
+    'max_iter': 10,  # Máximo número de iteraciones para el algoritmo Tabu
+    'num_runs': 1,
     'num_processes': 16
 }
 
@@ -244,6 +245,7 @@ def main(config: dict):
     num_runs = config.get('num_runs', 4)
     num_processes = config.get('num_processes', None)
     result_dir = f"output/{problem}/{algorithm}"
+    os.makedirs(result_dir, exist_ok=True)
 
     # Obtener las instancias según sea test o train
     instances = load_instances(subfolders=n_nodos, testing=testing)
@@ -340,12 +342,14 @@ def main(config: dict):
             algorithm, param_combinations, instances, n_nodos[0],
             result_base_dir, num_runs, num_processes
         )
+        # Generar reporte final
+        generate_final_report(results, result_base_dir, algorithm, mode)
     
     else:
         result_base_dir = f"{result_dir}/single/{global_timestamp}"
         if algorithm == 'GRASP':
             # Parámetros por defecto para GRASP
-            algorithm_params = []
+            task = []
             alpha = config.get('alpha', 0.3)
             frac_neighbors = config.get('frac_neighbors', 4)
             max_iter = config.get('max_iter', 20)
@@ -353,26 +357,23 @@ def main(config: dict):
                 instance_name = instance[0]
                 path = instance[1]
                 params = {
-                    'algorithm_type': 'GRASP',
+                    'algorithm_type': algorithm,
                     'params': create_params(instance=i, path=path),
                     'instance': i,
                     'instance_name': instance_name,
+                    'n_nodes': n_nodos,
+                    'run_idx': i,
+                    'temp_dir': os.path.join('/tmp', f'{algorithm}_fixed'),
                     'alpha': alpha,
                     'frac_neighbors': frac_neighbors,
                     'problem': problem,
-                    'max_iter': max_iter,
-                    'result_dir': result_base_dir,
-                    'run_idx': i,
-                    'temp_dir': os.path.join('/tmp', f'{algorithm}_single')
+                    'max_iter': max_iter
                 }
-                algorithm_params.append(params)
-
-            with multiprocessing.Pool(processes=num_processes) as pool:
-                results = pool.map(run_single_grasp_execution_improved, algorithm_params)
+                task.append(params)
             
         elif algorithm == 'GENETIC':
             # Parámetros por defecto para Genetic
-            algorithm_params = []
+            task = []
             inicialization = config.get('inicialization', 'random')
             generations = config.get('max_iter', 20)
             tournament = config.get('tournament', 5)
@@ -380,27 +381,25 @@ def main(config: dict):
                 instance_name = instance[0]
                 path = instance[1]
                 params = {
-                    'algorithm_type': 'GENETIC',
+                    'algorithm_type': algorithm,
                     'params': create_params(instance=i, path=path),
                     'instance': i,
                     'instance_name': instance_name,
+                    'n_nodes': n_nodos,
+                    'run_idx': i,
+                    'temp_dir': os.path.join('/tmp', f'{algorithm}_fixed'),
                     'generations': generations,
                     'mutation_rate': 0.05,
                     'crossover_rate': 0.95,
                     'tournament': tournament,
                     'inicializacion': inicialization,
-                    'problem': problem,
-                    'run_idx': i,
-                    'temp_dir': os.path.join('/tmp', f'{algorithm}_single')
+                    'problem': problem
                 }
-                algorithm_params.append(params)
-
-            with multiprocessing.Pool(processes=num_processes) as pool:
-                results = pool.map(run_single_genetic_execution_improved, algorithm_params)
+                task.append(params)
             
         elif algorithm == 'TABU':
             # Parámetros por defecto para Tabu
-            algorithm_params = []
+            task = []
             max_iter = config.get('max_iter', 20)
             tabu_tenure = config.get('tabu_tenure', 0.25)
             inicialization = config.get('inicialization', 'random')
@@ -411,10 +410,13 @@ def main(config: dict):
                 instance_name = instance[0]
                 path = instance[1]
                 params = {
-                    'algorithm_type': 'TABU',
+                    'algorithm_type': algorithm,
                     'params': create_params(instance=i, path=path),
                     'instance': i,
                     'instance_name': instance_name,
+                    'n_nodes': n_nodos,
+                    'run_idx': i,
+                    'temp_dir': os.path.join('/tmp', f'{algorithm}_fixed'),
                     'tabu_tenure': tabu_tenure,
                     'inicializacion': inicialization,
                     'max_iter': max_iter,
@@ -422,19 +424,25 @@ def main(config: dict):
                     'gamma_q': gamma_q,
                     'time_limit': time_limit,
                     'problem': problem,
-                    'run_idx': i,
-                    'temp_dir': os.path.join('/tmp', f'{algorithm}_single')
                 }
-                algorithm_params.append(params)
+                task.append(params)
 
-            with multiprocessing.Pool(processes=num_processes) as pool:
-                results = pool.map(run_single_tabu_execution_improved, algorithm_params)
         else:
             raise ValueError(f"Algoritmo desconocido: {algorithm}")
-    
-    # Generar reporte final
-    generate_final_report(results, result_base_dir, algorithm, mode)
-    
+        
+        with multiprocessing.Pool(processes=num_processes) as pool:
+            results = pool.map(run_fixed_parameters_multiple_instances, task)
+
+        
+        # run_fixed_parameters_multiple_instances(
+        #     algorithm_name=algorithm,
+        #     fixed_params=algorithm_params,
+        #     instances_data=instances,
+        #     n_nodes=n_nodos[0],
+        #     result_base_dir=result_base_dir,
+        #     num_processes=num_processes,
+        #     num_runs=num_runs
+        # )
     print(f"Experimento completado. Resultados en: {result_base_dir}")
     return results
 

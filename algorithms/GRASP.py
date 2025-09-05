@@ -6,7 +6,7 @@ from structure.solution import Solution
 
 class GRASPSearch:
     def __init__(self, params, instance, result_dir, logger: logging, frac_neighbors: int = 4, 
-                 alpha: float = 0.3, problem="P2", max_iter=None):
+                 alpha: float = 0.3, problem="P2", max_iter=50, time_limit=1000):
         # Asignación directa de parámetros
         self.I = params['I']
         self.J = params['J']
@@ -25,6 +25,7 @@ class GRASPSearch:
         self.frac_neighbors = frac_neighbors
         self.max_iter = max_iter if max_iter else self.n_customers
         self.num_neighbors = max(1, self.n_customers // self.frac_neighbors)
+        self.time_limit = time_limit
         
         # Estado del algoritmo
         self.best_solution = None
@@ -51,7 +52,7 @@ class GRASPSearch:
         # Pre-computar distancias promedio para ordenamiento
         self.avg_distances_ij = {}
         for j in self.J:
-            self.avg_distances_ij[j] = sum(self.d_ij[min(i,j)][max(i,j)] for i in self.I if i!=j) / (1-self.n_customers)
+            self.avg_distances_ij[j] = sum(self.d_ij[min(i,j)][max(i,j)] for i in self.I if i!=j) / (self.n_customers-1)
             
         self.avg_distances_kj = {}
         for k in self.K:
@@ -64,8 +65,9 @@ class GRASPSearch:
         consecutive_no_improvement = 0
         max_consecutive = 10  # Criterio de parada temprana
         
-        for iteration in range(1, self.max_iter + 1):
-            self.logger.info(f"Iteración {iteration}/{self.max_iter}")
+        iteration = 0
+        while iteration < self.max_iter and (time.time() - start_time) < self.time_limit:
+            self.logger.info(f"Iteración {iteration+1}/{self.max_iter}")
             
             # Construcción y mejora de solución
             current_solution = Solution(self)

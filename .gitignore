@@ -26,6 +26,7 @@ README.html
 
 # Archivos de salida
 output/
+results/
 
 # Archivos de texto enriquecido y PDFs
 *.pdf
